@@ -1,0 +1,54 @@
+name: nursing-wiki
+services:
+  api:
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    env_file: ../.env
+    environment:
+      OBJECT_ROOT: /data/objects
+      HOST: 0.0.0.0
+      PORT: 3000
+    volumes: [/data/objects:/data/objects]
+    restart: unless-stopped
+    depends_on: [mongo, redis, elasticsearch]
+    stop_grace_period: 120s
+    security_opt: [no-new-privileges:true]
+  mongo:
+    image: mongo:8.0.16
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:?Set MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD}
+    volumes: [mongo-data:/data/db]
+    restart: unless-stopped
+  redis:
+    image: redis:7.4.7-alpine
+    command: [redis-server, --appendonly, "yes", --maxmemory-policy, noeviction]
+    volumes: [redis-data:/data]
+    restart: unless-stopped
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.6
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: [elastic-data:/usr/share/elasticsearch/data]
+    restart: unless-stopped
+  public-web:
+    build: { context: .., dockerfile: apps/public-web/Dockerfile }
+    restart: unless-stopped
+  admin-web:
+    build: { context: .., dockerfile: apps/admin-web/Dockerfile }
+    restart: unless-stopped
+  nginx:
+    image: nginx:1.28.0-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/locations.conf:/etc/nginx/wiki-locations.conf:ro
+      - ./tls:/etc/nginx/tls:ro
+      - /data/objects:/data/objects
+    depends_on: [api, public-web, admin-web]
+    restart: unless-stopped
+volumes:
+  mongo-data:
+  redis-data:
+  elastic-data:

@@ -1,0 +1,6 @@
+{
+  "name": "@wiki/public-web", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1 --port 5173", "build": "vite build" },
+  "dependencies": { "@wiki/shared": "1.0.0", "react": "19.2.8", "react-dom": "19.2.8", "react-markdown": "10.1.0", "remark-gfm": "4.0.1" },
+  "devDependencies": { "vite": "7.3.1" }
+}

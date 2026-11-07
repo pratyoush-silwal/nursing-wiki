@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "packages", "apps/public-web", "apps/admin-web",
+    "apps/api/src/lib", "apps/api/src/services", "apps/api/src/config",
+    "apps/api/src/models/repository.ts", "apps/api/src/workers/labels.ts",
+    "apps/api/tests/core.test.ts", "apps/api/tests/lifecycle.test.ts", "apps/api/tests/helpers.ts",
+    "apps/api/tests/browser.integration.ts"
+  ]
+}
