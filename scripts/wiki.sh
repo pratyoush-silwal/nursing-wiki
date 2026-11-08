@@ -59,6 +59,12 @@ EOF
 command_name="${1:-}"
 case "$command_name" in
   start)
+    for file in infra/tls/fullchain.pem infra/tls/privkey.pem; do
+      if [[ ! -s "$file" ]]; then
+        printf 'Missing TLS file: %s\nCreate the certificate and key as described in README.md, then retry.\n' "$file" >&2
+        exit 1
+      fi
+    done
     prepare_object_storage
     if ! "${compose[@]}" up --build --detach --wait --wait-timeout 180; then
       "${compose[@]}" ps

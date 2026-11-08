@@ -5,6 +5,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/public-web/package.json apps/public-web/package.json
 COPY apps/admin-web/package.json apps/admin-web/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY tsconfig.json ./
 RUN npm install --ignore-scripts --no-audit --no-fund
 COPY apps/admin-web apps/admin-web
 COPY packages/shared packages/shared
