@@ -157,6 +157,7 @@ Sequential, separate endpoints:
 - Worker calls Gemini API with fixed prompt that forces output of 6–7 short medical/nursing label strings.
 - On success: update MongoDB `labels` + `labelStatus`, index into Elasticsearch, in-app success notification.
 - Failure path: BullMQ retry → after 2 daily attempts move to DLQ → in-app error notification.
+- The owner can manually retry all published pending, failed, and DLQ label jobs from the administration library; retries receive a fresh attempt budget, while active jobs are left alone.
 
 #### 5.6 Module: Search
 - `GET /search?q=...`
@@ -281,6 +282,7 @@ Indexes: `{ slug: 1 }` unique, `{ parentId: 1 }`, `{ labelStatus: 1 }`
 - `PUT /admin/articles/:id/content` (raw Markdown body)
 - `POST /admin/articles/:id/images` (multipart)
 - `DELETE /admin/articles/:id`
+- `POST /admin/labels/retry` → retry all published pending/failed/DLQ label jobs
 - `GET /articles/:slug` → full article DTO + breadcrumb
 - `GET /search?q=` → ranked hit list
 - `GET /admin/notifications`

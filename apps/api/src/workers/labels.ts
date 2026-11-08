@@ -34,15 +34,17 @@ export async function processLabels(articles: Articles, articleId: string, gener
   await articles.lock.run(async () => {
     const current = await articles.repo.get(articleId);
     if (!current || current.labelStatus !== 'pending' || (await articles.storage.deletedIds()).has(articleId) || !await articles.storage.exists(articleId)) return;
-    await articles.commit({ ...current, labels, labelStatus: 'success', indexPending: true, updatedAt: new Date().toISOString() });
-    await articles.notification('label-success', articleId, `Labels are ready for “${current.name}”.`, `labels-${articleId}`);
+    const updatedAt = new Date().toISOString();
+    await articles.commit({ ...current, labels, labelStatus: 'success', indexPending: true, updatedAt });
+    await articles.notification('label-success', articleId, `Labels are ready for “${current.name}”.`, `labels-success-${articleId}-${updatedAt}`);
   });
 }
 export async function failLabels(articles: Articles, articleId: string) {
   await articles.lock.run(async () => {
     const a = await articles.repo.get(articleId);
     if (!a || a.labelStatus !== 'pending' || (await articles.storage.deletedIds()).has(articleId)) return;
-    await articles.commit({ ...a, labelStatus: 'failed', updatedAt: new Date().toISOString() });
-    await articles.notification('label-failed', articleId, `Label generation failed after two attempts for “${a.name}”. The article remains readable and searchable by slug.`, `labels-${articleId}`);
+    const updatedAt = new Date().toISOString();
+    await articles.commit({ ...a, labelStatus: 'failed', updatedAt });
+    await articles.notification('label-failed', articleId, `Label generation failed after two attempts for “${a.name}”. The article remains readable and searchable by slug.`, `labels-failed-${articleId}-${updatedAt}`);
   });
 }

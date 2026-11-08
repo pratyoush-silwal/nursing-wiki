@@ -9,6 +9,7 @@ import { isFull } from '../lib/errors.ts';
 
 export interface AppServices {
   articles: Articles; auth: AuthService; search: SearchService;
+  retryLabels?: () => Promise<{ retried: number }>;
   health: () => Promise<{ mongo: boolean; redis: boolean; storage: boolean; elasticsearch: boolean }>;
 }
 export async function buildApp(services: AppServices, logLevel: string = 'silent') {
@@ -30,6 +31,10 @@ export async function buildApp(services: AppServices, logLevel: string = 'silent
   app.post('/admin/login', async request => services.auth.login(request.body));
   app.put('/admin/credentials', async (request, reply) => { await services.auth.change(request.body); return reply.code(204).send(); });
   app.get('/admin/tree', async () => services.articles.explorer());
+  app.post('/admin/labels/retry', async (_request, reply) => {
+    if (!services.retryLabels) return reply.code(503).send({ error: 'Label generation is not available yet' });
+    return services.retryLabels();
+  });
   app.post('/admin/articles', async (request, reply) => {
     const a = await services.articles.create(request.body);
     return reply.code(201).send({ id: a._id, slug: a.slug, objectKey: a.objectKey });

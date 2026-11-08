@@ -18,6 +18,10 @@ const articles = new Articles(repo, storage, index);
 let queue: LabelQueue | undefined;
 const check = async (fn: () => Promise<unknown>) => { try { await fn(); return true; } catch { return false; } };
 const app = await buildApp({ articles, auth: new AuthService(repo, config.JWT_SECRET), search: new SearchService(repo, storage, index),
+  retryLabels: async () => {
+    if (!queue) throw new Error('Label generation is not available yet');
+    return queue.retryAll();
+  },
   health: async () => {
     const [mongo, redis, disk, es] = await Promise.all([check(() => repo.ping()), check(async () => { if (!queue) throw new Error(); await queue.ping(); }), check(() => storage.writable()), check(() => index.ping())]);
     return { mongo, redis, storage: disk, elasticsearch: es };

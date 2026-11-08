@@ -36,16 +36,17 @@ test('browser: owner login, staged upload, notifications, delete confirmation an
   const browser = await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {})}); t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width:1440,height:1000}});
   const errors: string[] = [], uploads: string[] = []; page.on('pageerror',error => errors.push(error.message));
-  let published = false, deleted = false;
+  let published = false, deleted = false, labelsFailed = false;
   await page.route('**/api/**',async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path.endsWith('/login')) return route.fulfill({json:{token:'test-token'}});
     assert.equal(request.headers().authorization,'Bearer test-token');
-    if (path.endsWith('/tree')) return route.fulfill({json:{nodes:published && !deleted ? [{id:'a',name:'Nursing fundamentals',kind:'article',slug:'nursing',parentId:null}] : [],articles:published && !deleted ? [{_id:'a',name:'Nursing fundamentals',slug:'nursing',parentId:null,state:'published',labels:[],labelStatus:'pending',size:100,uploadedAt:'2026-01-01',ancestors:[],imagePaths:[]}] : []}});
+    if (path.endsWith('/tree')) return route.fulfill({json:{nodes:published && !deleted ? [{id:'a',name:'Nursing fundamentals',kind:'article',slug:'nursing',parentId:null}] : [],articles:published && !deleted ? [{_id:'a',name:'Nursing fundamentals',slug:'nursing',parentId:null,state:'published',labels:[],labelStatus:labelsFailed ? 'failed' : 'pending',size:100,uploadedAt:'2026-01-01',ancestors:[],imagePaths:[]}] : []}});
     if (path.endsWith('/notifications')) return route.fulfill({json:{notifications:[]}});
+    if (path.endsWith('/labels/retry')) { labelsFailed = false; return route.fulfill({json:{retried:1}}); }
     if (request.method() === 'DELETE') { deleted = true; return route.fulfill({json:{pending:false,deleted:1}}); }
     if (path.endsWith('/articles')) { uploads.push('metadata'); return route.fulfill({status:201,json:{id:'a',slug:'nursing',objectKey:'articles/a/content.md'}}); }
-    if (path.endsWith('/content')) { uploads.push('markdown'); published = true; assert.ok(request.postData()?.includes('# Nursing')); return route.fulfill({status:202,json:{id:'a',labelStatus:'pending',imagePaths:[]}}); }
+    if (path.endsWith('/content')) { uploads.push('markdown'); published = true; labelsFailed = true; assert.ok(request.postData()?.includes('# Nursing')); return route.fulfill({status:202,json:{id:'a',labelStatus:'pending',imagePaths:[]}}); }
     return route.fulfill({status:404,json:{error:'Unexpected request'}});
   });
   await page.goto(origin); await page.getByLabel('Username',{exact:true}).fill('owner'); await page.getByLabel('Password',{exact:true}).fill('test-password'); await page.getByRole('button',{name:'Sign in',exact:true}).click();
@@ -57,6 +58,8 @@ test('browser: owner login, staged upload, notifications, delete confirmation an
   await page.getByRole('button',{name:'Upload article',exact:true}).click();
   await page.getByRole('status').filter({hasText:'available in the library'}).waitFor();
   assert.deepEqual(uploads,['metadata','markdown']);
+  await page.getByRole('button',{name:'Retry pending & failed labels'}).click();
+  await page.getByRole('status').filter({hasText:'Queued 1 article'}).waitFor();
   await page.getByRole('button',{name:'Delete Nursing fundamentals',exact:true}).click();
   await page.getByRole('alertdialog').waitFor();
   await page.getByRole('button',{name:'Keep content'}).press('Tab');

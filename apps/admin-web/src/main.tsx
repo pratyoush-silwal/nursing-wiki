@@ -73,6 +73,7 @@ function App() {
   const [explorer,setExplorer] = useState<Explorer>({nodes:[],articles:[]}), [notifications,setNotifications] = useState<Notification[]>([]);
   const [selected,setSelected] = useState<string|null>(null), [upload,setUpload] = useState(false), [draft,setDraft] = useState<Omit<Article,'contentHash'>>();
   const [error,setError] = useState(''), [notice,setNotice] = useState(''), [loading,setLoading] = useState(false);
+  const [retryingLabels,setRetryingLabels] = useState(false);
   const [deleting,setDeleting] = useState<TreeNode | null>(null), [busy,setBusy] = useState(false);
   function signIn(value: string) { sessionStorage.setItem('wiki-token',value); setToken(value); setError(''); }
   function signOut() { sessionStorage.removeItem('wiki-token'); setToken(''); setExplorer({nodes:[],articles:[]}); setNotifications([]); setUpload(false); setDeleting(null); }
@@ -95,6 +96,15 @@ function App() {
     try { const result = await call<{pending:boolean}>(`/admin/articles/${deleting.id}`,{method:'DELETE'}); setNotice(result.pending ? 'Content removed. Search cleanup will complete automatically when the search service recovers.' : 'Article collection deleted.'); setDeleting(null); setSelected(null); await refresh(); }
     catch(e) { setError(e instanceof Error ? e.message : 'Deletion failed; retry to resume.'); } finally { setBusy(false); }
   }
+  async function retryLabels() {
+    setRetryingLabels(true); setError(''); setNotice('');
+    try {
+      const result = await call<{retried:number}>('/admin/labels/retry',{method:'POST'});
+      setNotice(result.retried ? `Queued ${result.retried} article(s) for label retry.` : 'No pending or failed label generations are ready to retry.');
+      await refresh(true);
+    } catch(e) { setError(e instanceof Error ? e.message : 'Could not retry label generations.'); }
+    finally { setRetryingLabels(false); }
+  }
   if (!token) return <Login onLogin={signIn}/>;
   const current = explorer.nodes.find(n => n.id === selected);
   const children = explorer.nodes.filter(n => n.parentId === selected);
@@ -107,7 +117,7 @@ function App() {
       <main id="main" className="admin-main">
         {error && <div className="error" role="alert">{error} <button className="text-button" onClick={() => void refresh()}>Retry</button></div>}
         {notice && <div className="notice" role="status">{notice} <button className="text-button" onClick={() => setNotice('')}>Dismiss</button></div>}
-        {tab === 'library' && <><div className="page-heading"><div><p className="eyebrow">Content management</p><h1 className="serif">{current?.name ?? 'Your library'}</h1><p className="muted">{current ? 'Browse this location or add an article within it.' : 'An organized home for your nursing and medical knowledge.'}</p></div><button className="button" onClick={() => { setDraft(undefined); setUpload(true); }}>+ Upload article</button></div>
+        {tab === 'library' && <><div className="page-heading"><div><p className="eyebrow">Content management</p><h1 className="serif">{current?.name ?? 'Your library'}</h1><p className="muted">{current ? 'Browse this location or add an article within it.' : 'An organized home for your nursing and medical knowledge.'}</p></div><div className="actions"><button className="button secondary" onClick={() => void retryLabels()} disabled={retryingLabels}>{retryingLabels ? 'Retrying labels…' : 'Retry pending & failed labels'}</button><button className="button" onClick={() => { setDraft(undefined); setUpload(true); }}>+ Upload article</button></div></div>
           <div className="library-stats"><span><strong>{explorer.articles.filter(a => a.state === 'published').length}</strong> articles</span><span><strong>{explorer.nodes.filter(n => n.kind === 'folder').length}</strong> folders</span><span><strong>{explorer.articles.filter(a => a.state === 'published' && a.labelStatus === 'pending').length}</strong> awaiting labels</span></div>
           {loading && <p role="status">Loading library…</p>}
           {upload && <Upload key={draft?._id ?? selected ?? 'root'} call={call} parentId={draft?.parentId ?? selected} parentName={current?.name ?? 'Library root'} draft={draft} cancel={() => { setUpload(false); void refresh(); }} finished={message => { setNotice(message); setUpload(false); void refresh(); }}/>}

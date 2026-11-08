@@ -9,7 +9,7 @@ test('HTTP integration: login, protected mutations, uploads, search, credentials
   await seedAdmin(f.repo,'owner','a-strong-test-password');
   const app = await buildApp({...f,health:async () => ({mongo:true,redis:true,storage:true,elasticsearch:true})}); t.after(() => app.close());
   const unauthenticated = await app.inject({method:'POST',url:'/admin/articles',payload:{name:'X',slug:'x'}}); assert.equal(unauthenticated.statusCode,401);
-  for (const [method,url] of [['GET','/admin/tree'],['GET','/admin/notifications'],['PUT','/admin/credentials'],['DELETE','/admin/articles/00000000-0000-4000-8000-000000000000'],['PATCH','/admin/notifications/x/read']]) {
+  for (const [method,url] of [['GET','/admin/tree'],['GET','/admin/notifications'],['POST','/admin/labels/retry'],['PUT','/admin/credentials'],['DELETE','/admin/articles/00000000-0000-4000-8000-000000000000'],['PATCH','/admin/notifications/x/read']]) {
     assert.equal((await app.inject({method:method as 'GET',url})).statusCode,401);
   }
   const login = await app.inject({method:'POST',url:'/admin/login',payload:{username:'owner',password:'a-strong-test-password'}}); assert.equal(login.statusCode,200);

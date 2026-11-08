@@ -16,7 +16,8 @@ export class LabelQueue {
     this.queue = new Queue('label-generation', { connection: this.connection });
     this.dlq = new Queue('label-generation-dlq', { connection: this.connection });
     this.worker = new Worker('label-generation', job => processLabels(articles, job.data.articleId, generate), { connection: this.workerConnection, concurrency: 1 });
-    for (const source of [this.connection, this.workerConnection, this.queue, this.dlq, this.worker]) source.on('error', onError);
+    this.connection.on('error', onError); this.workerConnection.on('error', onError);
+    this.queue.on('error', onError); this.dlq.on('error', onError); this.worker.on('error', onError);
   }
   async dispatch() {
     const deleted = await this.articles.storage.deletedIds();
@@ -31,7 +32,7 @@ export class LabelQueue {
       if (a.state !== 'published' || deleted.has(a._id) || !await this.articles.storage.exists(a._id)) continue;
       if (a.labelStatus !== 'pending') {
         await this.articles.notification(a.labelStatus === 'success' ? 'label-success' : 'label-failed', a._id,
-          a.labelStatus === 'success' ? `Labels are ready for “${a.name}”.` : `Label generation failed after two attempts for “${a.name}”.`, `labels-${a._id}`);
+          a.labelStatus === 'success' ? `Labels are ready for “${a.name}”.` : `Label generation failed after two attempts for “${a.name}”.`, `labels-${a.labelStatus}-${a._id}-${a.updatedAt}`);
         continue;
       }
       const job = await this.queue.getJob(a._id);
@@ -51,6 +52,36 @@ export class LabelQueue {
         removeOnComplete: { count: 1000 }, removeOnFail: false
       });
     }
+  }
+  async retryAll() {
+    const [articles, failedJobs, deadJobs] = await Promise.all([
+      this.articles.repo.all(), this.queue.getJobs(['failed']), this.dlq.getJobs(['wait', 'delayed', 'completed', 'failed'])
+    ]);
+    const retryIds = new Set([...failedJobs, ...deadJobs].map(job => job.data.articleId));
+    for (const article of articles) if (article.labelStatus === 'failed' || article.labelStatus === 'pending') retryIds.add(article._id);
+    let retried = 0;
+    for (const articleId of retryIds) {
+      const success = await this.articles.lock.run(async () => {
+        const article = await this.articles.repo.get(articleId);
+        if (!article || article.state !== 'published' || article.labelStatus === 'success'
+          || (await this.articles.storage.deletedIds()).has(articleId) || !await this.articles.storage.exists(articleId)) return false;
+        const job = await this.queue.getJob(articleId);
+        if (job && await job.getState() === 'active') return false;
+        const deadJob = await this.dlq.getJob(articleId);
+        if (deadJob && await deadJob.getState() === 'active') return false;
+        await job?.remove();
+        await deadJob?.remove();
+        const markdownText = await this.articles.storage.read(articleId);
+        await this.articles.commit({ ...article, labelStatus: 'pending', updatedAt: new Date().toISOString() });
+        await this.queue.add('generate-labels', { articleId, markdownText }, {
+          jobId: articleId, attempts: LABEL_ATTEMPTS, backoff: { type: 'fixed', delay: LABEL_RETRY_DELAY },
+          removeOnComplete: { count: 1000 }, removeOnFail: false
+        });
+        return true;
+      });
+      if (success) retried++;
+    }
+    return { retried };
   }
   async ping() { await this.connection.ping(); }
   async close() {

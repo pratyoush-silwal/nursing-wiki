@@ -29,9 +29,9 @@ test('real MongoDB + Elasticsearch + Redis/BullMQ lifecycle, retry/DLQ, auth and
   const root = await mkdtemp(join(tmpdir(),'wiki-objects-integration-')); const storage = new Storage(root); await storage.init();
   const index = new Elasticsearch(process.env.TEST_ELASTICSEARCH_URL!,`wiki_test_${suffix}`); await index.initialize(); await repo.initialize();
   const articles = new Articles(repo,storage,index), auth = new AuthService(repo,secret), search = new SearchService(repo,storage,index);
-  const ids: string[] = []; let attempts = 0;
-  const queue = new LabelQueue(redis,articles,async markdown => { if (markdown.includes('force-failure')) { attempts++; throw new Error('Synthetic Gemini failure'); } return labels; },() => {});
-  const app = await buildApp({articles,auth,search,health:async () => ({mongo:true,redis:true,storage:true,elasticsearch:true})});
+  const ids: string[] = []; let attempts = 0, allowRetry = false;
+  const queue = new LabelQueue(redis,articles,async markdown => { if (markdown.includes('force-failure') && !allowRetry) { attempts++; throw new Error('Synthetic Gemini failure'); } return labels; },() => {});
+  const app = await buildApp({articles,auth,search,retryLabels:() => queue.retryAll(),health:async () => ({mongo:true,redis:true,storage:true,elasticsearch:true})});
   t.after(async () => {
     await app.close(); await queue.close();
     await repo.remove(ids);
@@ -56,6 +56,13 @@ test('real MongoDB + Elasticsearch + Redis/BullMQ lifecycle, retry/DLQ, auth and
   const job = (await queue.queue.getJob(failing))!; await job.changeDelay(0);
   await until(async () => (await queue.queue.getJob(failing))?.getState().then(state => state === 'failed') ?? false);
   await queue.dispatch(); assert.equal(attempts,2); assert.equal((await repo.get(failing))?.labelStatus,'failed'); assert.ok(await queue.dlq.getJob(failing));
+  const pending = await publish('pending-retry','# Pending retry');
+  allowRetry = true;
+  const retry = await app.inject({method:'POST',url:'/admin/labels/retry',headers});
+  assert.equal(retry.statusCode,200); assert.deepEqual(retry.json(),{retried:2});
+  await until(async () => (await repo.get(failing))?.labelStatus === 'success' && (await repo.get(pending))?.labelStatus === 'success');
+  assert.deepEqual((await repo.get(failing))?.labels,labels); assert.equal(await queue.dlq.getJob(failing),undefined);
+  assert.equal((await repo.notifications()).filter(n => n.articleId === failing).length,2);
   const removed = await app.inject({method:'DELETE',url:`/admin/articles/${exact}`,headers}); assert.equal(removed.statusCode,200);
   assert.equal(await repo.get(partial),null); assert.equal((await search.search('nursing')).hits.length,1);
   for (const id of ids) { await (await queue.queue.getJob(id))?.remove(); await (await queue.dlq.getJob(id))?.remove(); }

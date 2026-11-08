@@ -16,6 +16,7 @@ single seeded owner is accepted. Unsupported mutation routes are also protected.
 | `PUT /admin/articles/:id/content` | Raw UTF-8 Markdown, `Content-Type: text/markdown`, 1 byte–6 MB | `202 { id, labelStatus, imagePaths }` |
 | `POST /admin/articles/:id/images` | Multipart, one image per request; filename is relative reference path, 1 byte–20 MB | `201 { path }` |
 | `DELETE /admin/articles/:id` | Article or implicit folder UUID | `200 { deleted, pending: false }` or `202 { deleted, pending: true }` |
+| `POST /admin/labels/retry` | — | `{ retried }`; immediately queues published pending/failed and dead-letter label jobs with a fresh attempt budget; active jobs are left alone |
 | `GET /admin/notifications` | — | `{ notifications }`, newest 200 |
 | `PATCH /admin/notifications/:id/read` | — | `204`, or `404` |
 | `GET /articles/:slug` | — | `{ id, slug, name, size, uploadedAt, labels, labelStatus, markdown, breadcrumb, images }` |
