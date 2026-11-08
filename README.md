@@ -19,12 +19,15 @@ certificate for the hostname you will use. Only Nginx publishes host ports.
 2. Set `GEMINI_API_KEY` and a currently available `GEMINI_MODEL` for labeling.
    Without these, reading and slug search still work; label jobs eventually fail
    into the DLQ and produce notifications.
-3. Prepare the specified object-storage mount for the API container's UID 1000:
+3. Create the TLS directory:
 
    ```sh
-   sudo install -d -o 1000 -g 1000 -m 0755 /data/objects
    mkdir -p infra/tls
    ```
+
+   `scripts/wiki.sh start` checks `/data/objects` and repairs its ownership for
+   container UID 1000 when needed. It uses `sudo` only if elevated permission is
+   required, and only for that dedicated object-storage directory.
 
 4. Put your certificate at `infra/tls/fullchain.pem` and its private key at
    `infra/tls/privkey.pem`. For local development only, you can generate a
@@ -37,12 +40,25 @@ certificate for the hostname you will use. Only Nginx publishes host ports.
    chmod 600 infra/tls/privkey.pem
    ```
 
-5. Start from the repository root:
+5. Start and manage the stack from the repository root:
 
    ```sh
-   docker compose --env-file .env -f infra/docker-compose.yml up --build -d
-   docker compose --env-file .env -f infra/docker-compose.yml logs -f api
+   bash scripts/wiki.sh start
    ```
+
+   The start command builds the images, starts the services, and waits for
+   health checks. Use these commands to operate the stack:
+
+   ```sh
+   bash scripts/wiki.sh status       # service and health status
+   bash scripts/wiki.sh logs api     # follow API logs
+   bash scripts/wiki.sh stop         # stop services, preserving containers/data
+   bash scripts/wiki.sh restart      # restart services
+   bash scripts/wiki.sh down         # remove containers/network, preserve data
+   ```
+
+   `down` preserves named volumes and `/data/objects`; do not add `-v` if you
+   want to retain application data.
 
 Open `https://localhost/` for the library and `https://localhost/admin/` for owner
 access. The first boot seeds the owner from environment variables. Future boots
