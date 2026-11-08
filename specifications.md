@@ -134,7 +134,7 @@ Inside containers the same path is used.
 - Middleware: all routes except `GET /articles/:slug`, `GET /search`, `GET /health*` require valid JWT + owner claim.
 
 #### 5.2 Module: Hierarchy & Metadata
-- Article document fields: `_id` (UUID), `slug`, `name`, `parentId` (UUID | null), `objectKey`, `size`, `uploadedAt`, `labelStatus` (`pending` | `success` | `failed`), `labels` (string[]).
+- Article document fields: `_id` (UUID), `slug`, `name`, `parentId` (UUID | null), `objectKey`, `size`, `uploadedAt`, `labelStatus` (`pending` | `success` | `failed`), `labels` (string[]), optional `labelsDeferred` (boolean).
 - Folder existence is implicit: a folder path exists if any article has that parent chain.
 - Admin explorer UI must present a tree derived from adjacency list and allow navigation + upload into any existing or new path.
 
@@ -143,7 +143,7 @@ Sequential, separate endpoints:
 1. `POST /admin/articles` → create metadata (returns UUID + suggested object keys).
 2. `PUT /admin/articles/:uuid/content` → upload Markdown (≤ 6 MB). Validates relative image paths exist or will exist.
 3. `POST /admin/articles/:uuid/images` → multipart image upload (≤ 20 MB each). Stores under deterministic keys derived from article UUID + original filename.
-4. On successful Markdown upload → enqueue BullMQ job `generate-labels`.
+4. On successful Markdown upload → enqueue BullMQ job `generate-labels`, unless the owner selected deferred labels for a demo import.
 
 #### 5.4 Module: Delete
 - `DELETE /admin/articles/:uuid`

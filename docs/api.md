@@ -12,7 +12,7 @@ single seeded owner is accepted. Unsupported mutation routes are also protected.
 | `POST /admin/login` | `{ username, password }` | `200 { token }`, `401` bad credentials, `503` auth not configured |
 | `PUT /admin/credentials` | `{ username, currentPassword, password }` | `204`; existing JWTs revoked |
 | `GET /admin/tree` | — | `{ nodes, articles }`; materialized tree and private drafts |
-| `POST /admin/articles` | `{ name, slug, parentId?: UUID \| null, folderPath?: string[] }` | `201 { id, slug, objectKey }` |
+| `POST /admin/articles` | `{ name, slug, parentId?: UUID \| null, folderPath?: string[], deferLabels?: boolean }` | `201 { id, slug, objectKey }` |
 | `PUT /admin/articles/:id/content` | Raw UTF-8 Markdown, `Content-Type: text/markdown`, 1 byte–6 MB | `202 { id, labelStatus, imagePaths }` |
 | `POST /admin/articles/:id/images` | Multipart, one image per request; filename is relative reference path, 1 byte–20 MB | `201 { path }` |
 | `DELETE /admin/articles/:id` | Article or implicit folder UUID | `200 { deleted, pending: false }` or `202 { deleted, pending: true }` |
@@ -33,6 +33,8 @@ Metadata creation is idempotent by slug plus name and parent path. A conflict
 returns `409`. Retrying uploads with identical bytes is safe. Changed Markdown or
 existing image bytes return `409`; undeclared images return `400`. File size
 violations return `413`, wrong media types `415`, disk-full failures `507`.
+`deferLabels: true` leaves a published article pending until the owner uses the
+manual label retry action. The demo importer uses this option.
 
 Only images declared in the published Markdown may be added. Inline and
 reference-style Markdown images are recognized; examples inside code blocks are

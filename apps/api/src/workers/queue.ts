@@ -35,6 +35,7 @@ export class LabelQueue {
           a.labelStatus === 'success' ? `Labels are ready for “${a.name}”.` : `Label generation failed after two attempts for “${a.name}”.`, `labels-${a.labelStatus}-${a._id}-${a.updatedAt}`);
         continue;
       }
+      if (a.labelsDeferred) continue;
       const job = await this.queue.getJob(a._id);
       if (job) {
         const state = await job.getState();
@@ -72,7 +73,7 @@ export class LabelQueue {
         await job?.remove();
         await deadJob?.remove();
         const markdownText = await this.articles.storage.read(articleId);
-        await this.articles.commit({ ...article, labelStatus: 'pending', updatedAt: new Date().toISOString() });
+        await this.articles.commit({ ...article, labelStatus: 'pending', labelsDeferred: false, updatedAt: new Date().toISOString() });
         await this.queue.add('generate-labels', { articleId, markdownText }, {
           jobId: articleId, attempts: LABEL_ATTEMPTS, backoff: { type: 'fixed', delay: LABEL_RETRY_DELAY },
           removeOnComplete: { count: 1000 }, removeOnFail: false

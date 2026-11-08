@@ -69,6 +69,31 @@ The API starts even if Redis, Elasticsearch, Gemini, or owner authentication are
 unavailable. MongoDB and object storage are required for content reads. Readiness
 returns `degraded` when optional dependencies are down; liveness stays independent.
 
+## Demo nursing collection
+
+To populate a running installation with sample content, rebuild the API image and
+run the importer from the repository root:
+
+```sh
+bash scripts/wiki.sh start
+bash scripts/wiki.sh seed-demo
+```
+
+Enter the **current** owner username and password when prompted. The importer adds
+106 nested articles (including 80 practice, procedure, and medicine topics) under
+**Nursing practice demo library**, plus one image. It is safe to rerun: published
+articles are skipped, and drafts from an interrupted import are resumed. Browse the
+collection at `https://localhost/article/demo-nursing-library` or find topics by
+their `demo-` slugs in search.
+
+The sample articles remain **pending** for labels until you press **Retry pending &
+failed labels** in the admin library. That button also retries other pending and
+failed articles, so expect up to 106 new label jobs and associated Gemini usage when
+you press it. The sample text is an educational overview with links to source
+guidance; use current orders and local clinical policy for real care. To remove the
+collection, delete its top-level article in the admin explorer; that also deletes
+its descendants.
+
 ## Local development
 
 Use Node 24 LTS (22.12+ is supported). Direct dependencies are pinned. Run
@@ -90,7 +115,7 @@ npm run dev:admin
 Public development uses `http://127.0.0.1:5173`; administration uses
 `http://127.0.0.1:5174/admin/`. Both proxy `/api` to port 3000. Image serving is an
 Nginx responsibility, so use Compose for complete image delivery and TLS checks.
-There is no production mock API or sample medical content.
+The demo collection above can be imported into a running installation.
 
 ## Upload and organize
 

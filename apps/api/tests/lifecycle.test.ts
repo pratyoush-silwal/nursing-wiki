@@ -26,6 +26,14 @@ test('staged upload materializes folders only after content and is immutable/ide
   await assert.rejects(f.articles.image(a._id,'not-referenced.png',png),/not referenced/);
   await assert.rejects(f.articles.image(a._id,'images/scan.png',Buffer.concat([png,Buffer.from('changed')])),/immutable/);
 });
+test('deferred labels survive publication and metadata recovery', async t => {
+  const f = await fixture(); t.after(f.close);
+  const article = await f.articles.create({name:'Demo',slug:'demo',deferLabels:true});
+  await f.articles.upload(article._id,Buffer.from('# Demo'));
+  assert.equal((await f.repo.get(article._id))?.labelsDeferred,true);
+  f.repo.articles.clear(); await f.articles.reconcile();
+  assert.equal((await f.repo.get(article._id))?.labelsDeferred,true);
+});
 test('uploads reject excessive size, invalid UTF-8, unsafe paths and images before Markdown', async t => {
   const f = await fixture(); t.after(f.close); const a = await f.articles.create({name:'X',slug:'x'});
   await assert.rejects(f.articles.upload(a._id,Buffer.alloc(MARKDOWN_LIMIT+1)),/6 MB/);

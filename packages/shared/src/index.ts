@@ -7,7 +7,7 @@ export const slugSchema = z.string().min(1).max(160).regex(/^[a-z0-9]+(?:-[a-z0-
 export const nameSchema = z.string().trim().min(1).max(160).refine(v => !/[\x00-\x1f/\\]/.test(v) && v !== '.' && v !== '..', 'Invalid name');
 export const createArticleSchema = z.object({
   name: nameSchema, slug: slugSchema, parentId: idSchema.nullable().default(null),
-  folderPath: z.array(nameSchema).max(20).default([])
+  folderPath: z.array(nameSchema).max(20).default([]), deferLabels: z.boolean().default(false)
 }).strict();
 export const loginSchema = z.object({ username: z.string().trim().min(1).max(80), password: z.string().min(1).max(72).refine(v => new TextEncoder().encode(v).length <= 72, 'Password must be at most 72 bytes') }).strict();
 export const credentialsSchema = z.object({
@@ -26,6 +26,7 @@ export interface Article {
   _id: string; slug: string; name: string; parentId: string | null; objectKey: string;
   size: number; uploadedAt: string | null; createdAt: string; updatedAt: string;
   labelStatus: 'pending' | 'success' | 'failed'; labels: string[];
+  labelsDeferred?: boolean;
   state: 'draft' | 'published'; ancestors: TreeNode[]; contentHash: string | null;
   imagePaths: string[]; indexPending: boolean;
 }

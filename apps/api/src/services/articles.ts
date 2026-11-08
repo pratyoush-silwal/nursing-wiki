@@ -56,7 +56,7 @@ export class Articles {
       const id = randomUUID(), now = new Date().toISOString();
       const article: Article = { _id: id, slug: body.slug, name: body.name, parentId, ancestors: chain,
         objectKey: `articles/${id}/content.md`, size: 0, uploadedAt: null, createdAt: now, updatedAt: now,
-        state: 'draft', labelStatus: 'pending', labels: [], contentHash: null, imagePaths: [], indexPending: true };
+        state: 'draft', labelStatus: 'pending', labels: [], labelsDeferred: body.deferLabels, contentHash: null, imagePaths: [], indexPending: true };
       await this.commit(article); return article;
     });
   }

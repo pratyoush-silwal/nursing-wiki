@@ -52,6 +52,7 @@ Usage: scripts/wiki.sh COMMAND [SERVICE...]
   restart        Restart all services
   status         Show service and API health status
   logs [SERVICE] Follow all logs, or just the named service (default: api)
+  seed-demo      Import the 106-article nursing demo collection (prompts for owner login)
   down           Remove containers and network; preserve all data volumes
 EOF
 }
@@ -89,6 +90,13 @@ case "$command_name" in
     else
       "${compose[@]}" logs --follow --tail=100 api
     fi
+    ;;
+  seed-demo)
+    read -r -p 'Owner username: ' demo_username
+    read -r -s -p 'Owner password: ' demo_password
+    printf '\n'
+    printf '%s\n%s\n' "$demo_username" "$demo_password" | "${compose[@]}" exec -T api node --import tsx scripts/seed-demo.ts
+    unset demo_username demo_password
     ;;
   down)
     "${compose[@]}" down --remove-orphans

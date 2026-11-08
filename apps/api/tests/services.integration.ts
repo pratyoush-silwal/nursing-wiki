@@ -42,8 +42,8 @@ test('real MongoDB + Elasticsearch + Redis/BullMQ lifecycle, retry/DLQ, auth and
   await seedAdmin(repo,'owner','a-strong-test-password');
   const login = await app.inject({method:'POST',url:'/admin/login',payload:{username:'owner',password:'a-strong-test-password'}}); assert.equal(login.statusCode,200);
   const headers = {authorization:`Bearer ${login.json().token}`};
-  async function publish(slug: string, text: string, parentId: string | null = null) {
-    const created = await app.inject({method:'POST',url:'/admin/articles',headers,payload:{name:slug,slug,parentId}}); assert.equal(created.statusCode,201);
+  async function publish(slug: string, text: string, parentId: string | null = null, deferLabels = false) {
+    const created = await app.inject({method:'POST',url:'/admin/articles',headers,payload:{name:slug,slug,parentId,deferLabels}}); assert.equal(created.statusCode,201);
     const id = created.json().id; ids.push(id);
     const upload = await app.inject({method:'PUT',url:`/admin/articles/${id}/content`,headers:{...headers,'content-type':'text/markdown'},payload:text}); assert.equal(upload.statusCode,202);
     return id;
@@ -56,7 +56,8 @@ test('real MongoDB + Elasticsearch + Redis/BullMQ lifecycle, retry/DLQ, auth and
   const job = (await queue.queue.getJob(failing))!; await job.changeDelay(0);
   await until(async () => (await queue.queue.getJob(failing))?.getState().then(state => state === 'failed') ?? false);
   await queue.dispatch(); assert.equal(attempts,2); assert.equal((await repo.get(failing))?.labelStatus,'failed'); assert.ok(await queue.dlq.getJob(failing));
-  const pending = await publish('pending-retry','# Pending retry');
+  const pending = await publish('pending-retry','# Pending retry',null,true);
+  await queue.dispatch(); assert.equal(await queue.queue.getJob(pending),undefined);
   allowRetry = true;
   const retry = await app.inject({method:'POST',url:'/admin/labels/retry',headers});
   assert.equal(retry.statusCode,200); assert.deepEqual(retry.json(),{retried:2});
