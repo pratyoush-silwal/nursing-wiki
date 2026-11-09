@@ -26,7 +26,7 @@ prepare_object_storage() {
   fi
 
   local path owner needs_fix=0
-  for path in "$root" "$root/articles" "$root/.drafts" "$root/.deletions"; do
+  for path in "$root" "$root/articles" "$root/.drafts" "$root/.deletions" "$root/.edits"; do
     [[ ! -L "$path" ]] || { printf 'Refusing to change ownership: %s is a symlink.\n' "$path" >&2; return 1; }
     [[ ! -e "$path" ]] && continue
     owner="$(stat -c '%u:%g' -- "$path")"
@@ -72,6 +72,8 @@ case "$command_name" in
       printf '\nStartup failed. Inspect logs with: bash scripts/wiki.sh logs api\n' >&2
       exit 1
     fi
+    # Apply bind-mounted proxy configuration and discard old upstream addresses.
+    "${compose[@]}" restart nginx
     "${compose[@]}" ps
     ;;
   stop)

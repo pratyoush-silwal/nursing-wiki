@@ -1,33 +1,44 @@
 import Fastify from 'fastify';
+import { learningRoutes } from './learning.ts';
+import type { Learning } from '../services/learning.ts';
+import type { LearningQueues } from '../workers/learning.ts';
 import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
 import { idSchema, slugSchema, searchSchema, MARKDOWN_LIMIT, IMAGE_LIMIT } from '@wiki/shared';
 import type { Articles } from '../services/articles.ts';
 import type { AuthService } from '../services/auth.ts';
 import type { SearchService } from '../services/search.ts';
-import { isFull } from '../lib/errors.ts';
+import { HttpError, isFull } from '../lib/errors.ts';
 
 export interface AppServices {
+  learning?: Learning; learningQueues?: () => LearningQueues | undefined;
   articles: Articles; auth: AuthService; search: SearchService;
   retryLabels?: () => Promise<{ retried: number }>;
   health: () => Promise<{ mongo: boolean; redis: boolean; storage: boolean; elasticsearch: boolean }>;
 }
 export async function buildApp(services: AppServices, logLevel: string = 'silent') {
-  const app = Fastify({ logger: logLevel === 'silent' ? false : { level: logLevel, redact: ['req.headers.authorization', 'req.body.password', 'req.body.currentPassword'] }, bodyLimit: MARKDOWN_LIMIT, requestTimeout: 120_000 });
+  const app = Fastify({ logger: logLevel === 'silent' ? false : { level: logLevel, redact: ['req.headers.authorization', 'req.body.password', 'req.body.currentPassword', 'req.body.code'] }, bodyLimit: MARKDOWN_LIMIT, requestTimeout: 120_000 });
   await app.register(multipart, { limits: { fileSize: IMAGE_LIMIT, files: 1, fields: 0, parts: 1 }, preservePath: true });
   app.addContentTypeParser(['text/markdown', 'text/plain'], { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff');
     const path = request.url.split('?')[0];
-    const publicRead = ['GET','HEAD'].includes(request.method) && (/^\/articles\/[^/]+$/.test(path) || path === '/search' || ['/health/live','/health/ready'].includes(path));
-    if (!(request.method === 'POST' && path === '/admin/login') && !publicRead) await services.auth.authorize(request.headers.authorization);
+    const publicRead = ['GET','HEAD'].includes(request.method) && (/^\/articles\/[^/]+$/.test(path) || (path === '/search' || path === '/search/suggest') || ['/health/live','/health/ready'].includes(path));
+    const authRoute = request.method === 'POST' && ['/admin/login','/auth/register','/auth/verify','/auth/login'].includes(path);
+    if (!authRoute && !publicRead) {
+      if (path.startsWith('/admin/')) await services.auth.authorize(request.headers.authorization);
+      else if (services.learning) await services.learning.authorize(request.headers.authorization);
+      else await services.auth.authorize(request.headers.authorization);
+    }
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) return reply.code(400).send({ error: 'Invalid request', details: error.issues.map(i => ({ path: i.path.join('.'), message: i.message })) });
     const status = isFull(error) ? 507 : (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) request.log.error({ err: error }, 'Request failed');
-    return reply.code(status).send({ error: status === 507 ? 'Object storage is full' : status >= 500 ? 'Service temporarily unavailable' : (error as Error).message });
+    return reply.code(status).send({ ...((error as {code?:string}).code === 'PREMIUM_REQUIRED' ? {code:'PREMIUM_REQUIRED'} : {}), error: status === 507 ? 'Object storage is full' : status === 503 && error instanceof HttpError ? error.message : status >= 500 ? 'Service temporarily unavailable' : (error as Error).message });
   });
+  if (services.learning) await learningRoutes(app, services.learning, services.learningQueues ?? (() => undefined));
+  app.get('/search/suggest', async request => { const {q} = searchSchema.parse(request.query); if(q.length < 3) return {hits:[]}; const result = await services.search.search(q); return {...result,hits:result.hits.slice(0,5)}; });
   app.post('/admin/login', async request => services.auth.login(request.body));
   app.put('/admin/credentials', async (request, reply) => { await services.auth.change(request.body); return reply.code(204).send(); });
   app.get('/admin/tree', async () => services.articles.explorer());
@@ -54,8 +65,10 @@ export async function buildApp(services: AppServices, logLevel: string = 'silent
       files.push({ name: part.filename, bytes: await part.toBuffer() });
     }
     if (files.length !== 1) return reply.code(400).send({ error: 'Send one image file per request' });
-    return reply.code(201).send(await services.articles.image(id, files[0].name, files[0].bytes));
+    return reply.code(201).send(await services.articles.image(id, files[0].name, files[0].bytes, (request.query as {replace?:string}).replace === 'true'));
   });
+  app.patch<{Params:{id:string}}>('/admin/articles/:id', async request => services.articles.edit(idSchema.parse(request.params.id),request.body));
+  app.delete<{Params:{id:string}}>('/admin/articles/:id/image',async request => services.articles.removeImage(idSchema.parse(request.params.id),(request.query as {path?:string}).path ?? ''));
   app.delete<{ Params: { id: string } }>('/admin/articles/:id', async (request, reply) => {
     const result = await services.articles.delete(idSchema.parse(request.params.id));
     return reply.code(result.pending ? 202 : 200).send(result);

@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
 import { mongoClient, MongoRepository } from '../src/models/mongo.ts';
 import { Storage } from '../src/services/storage.ts';
 import { Articles } from '../src/services/articles.ts';
@@ -35,7 +34,7 @@ test('real MongoDB + Elasticsearch + Redis/BullMQ lifecycle, retry/DLQ, auth and
   t.after(async () => {
     await app.close(); await queue.close();
     await repo.remove(ids);
-    await db.collection('admins').deleteOne({_id:new ObjectId('000000000000000000000001')});
+    await db.collection<{_id:string}>('users').deleteOne({_id:'00000000-0000-4000-8000-000000000001'});
     await db.collection('notifications').deleteMany({articleId:{$in:ids}});
     await index.remove(ids); await client.close(); await rm(root,{recursive:true,force:true});
   });

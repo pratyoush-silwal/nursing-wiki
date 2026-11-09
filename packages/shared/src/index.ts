@@ -37,4 +37,4 @@ export interface ArticleDto {
 }
 export interface SearchHit { id: string; slug: string; name: string; labels: string[]; uploadedAt: string | null; match: 'exact' | 'slug' | 'label' }
 export interface SearchResult { hits: SearchHit[]; source: 'elasticsearch' | 'mongo'; }
-export interface Notification { _id: string; type: 'label-success' | 'label-failed' | 'storage-full' | 'delete-complete'; articleId: string | null; message: string; read: boolean; createdAt: string }
+export interface Notification { _id: string; type: 'label-success' | 'label-failed' | 'storage-full' | 'delete-complete' | 'quiz-active' | 'quiz-result' | 'premium-unlocked'; userId?:string; articleId: string | null; message: string; read: boolean; createdAt: string }

@@ -4,6 +4,7 @@ COPY package*.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/public-web/package.json apps/public-web/package.json
 COPY apps/admin-web/package.json apps/admin-web/package.json
+COPY apps/client-web/package.json apps/client-web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm install --ignore-scripts --no-audit --no-fund
 COPY tsconfig.json ./

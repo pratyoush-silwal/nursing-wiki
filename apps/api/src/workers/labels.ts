@@ -32,6 +32,7 @@ export async function processLabels(articles: Articles, articleId: string, gener
   const markdown = await articles.storage.read(articleId);
   const labels = labelsSchema.parse(await generate(markdown));
   await articles.lock.run(async () => {
+    await articles.recoverEdits();
     const current = await articles.repo.get(articleId);
     if (!current || current.labelStatus !== 'pending' || (await articles.storage.deletedIds()).has(articleId) || !await articles.storage.exists(articleId)) return;
     const updatedAt = new Date().toISOString();
@@ -41,6 +42,7 @@ export async function processLabels(articles: Articles, articleId: string, gener
 }
 export async function failLabels(articles: Articles, articleId: string) {
   await articles.lock.run(async () => {
+    await articles.recoverEdits();
     const a = await articles.repo.get(articleId);
     if (!a || a.labelStatus !== 'pending' || (await articles.storage.deletedIds()).has(articleId)) return;
     const updatedAt = new Date().toISOString();

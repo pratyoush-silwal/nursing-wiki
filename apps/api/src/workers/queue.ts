@@ -63,6 +63,7 @@ export class LabelQueue {
     let retried = 0;
     for (const articleId of retryIds) {
       const success = await this.articles.lock.run(async () => {
+        await this.articles.recoverEdits();
         const article = await this.articles.repo.get(articleId);
         if (!article || article.state !== 'published' || article.labelStatus === 'success'
           || (await this.articles.storage.deletedIds()).has(articleId) || !await this.articles.storage.exists(articleId)) return false;

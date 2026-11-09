@@ -1,7 +1,9 @@
+import { z } from 'zod';
+import { idSchema, nameSchema } from '@wiki/shared';
 import { randomUUID } from 'node:crypto';
 import { createArticleSchema, MARKDOWN_LIMIT, IMAGE_LIMIT, type Article, type ArticleDto, type Notification } from '@wiki/shared';
 import type { Repository } from '../models/repository.ts';
-import { Storage, contentHash, type DeleteIntent } from './storage.ts';
+import { Storage, contentHash, type DeleteIntent, type EditIntent } from './storage.ts';
 import type { SearchIndex } from './search.ts';
 import { Lock } from '../lib/lock.ts';
 import { HttpError, isFull, isMissing } from '../lib/errors.ts';
@@ -38,6 +40,7 @@ export class Articles {
   async create(input: unknown) {
     const body = createArticleSchema.parse(input);
     return this.lock.run(async () => {
+      await this.recoverEdits();
       let chain = ancestry(tree(await this.visible()), body.parentId);
       let parentId = body.parentId;
       for (const name of body.folderPath) {
@@ -61,6 +64,7 @@ export class Articles {
     });
   }
   private async active(id: string) {
+    await this.recoverEdits();
     const a = await this.repo.get(id);
     if (!a || (await this.storage.deletedIds()).has(id)) throw new HttpError(404, 'Article not found');
     return a;
@@ -87,7 +91,7 @@ export class Articles {
       } catch (e) { if (isFull(e)) await this.notification('storage-full', id, 'Object storage is full. Free space and retry the upload.'); throw e; }
     });
   }
-  async image(id: string, filename: string, bytes: Buffer) {
+  async image(id: string, filename: string, bytes: Buffer, replace = false) {
     const path = imagePath(filename);
     if (!bytes.length || bytes.length > IMAGE_LIMIT) throw new HttpError(bytes.length ? 413 : 400, 'Each image must be between 1 byte and 20 MB');
     validateImage(path, bytes);
@@ -95,11 +99,44 @@ export class Articles {
       const a = await this.active(id);
       if (a.state !== 'published') throw new HttpError(409, 'Upload Markdown before its images');
       if (!a.imagePaths.includes(path)) throw new HttpError(400, 'Image is not referenced by this article');
-      try { await this.storage.immutable(id, path, bytes); }
+      try { if(replace) await this.storage.replace(id,path,bytes); else await this.storage.immutable(id, path, bytes); }
       catch (e) { if (isFull(e)) await this.notification('storage-full', id, 'Object storage is full. Free space and retry the image.'); throw e; }
       return { path };
     });
   }
+  async edit(id:string,input:unknown) {
+    const body=z.object({name:nameSchema.optional(),parentId:idSchema.nullable().optional(),markdown:z.string().min(1).optional()}).strict().parse(input);
+    const bytes=body.markdown===undefined?undefined:Buffer.from(body.markdown);
+    if(bytes && bytes.length>MARKDOWN_LIMIT)throw new HttpError(413,'Markdown must not exceed 6 MB');
+    const imagePaths=body.markdown===undefined?undefined:markdownImages(body.markdown);
+    return this.lock.run(async()=>{
+      const a=await this.active(id);if(a.state!=='published')throw new HttpError(409,'Publish the draft first');
+      const all=await this.repo.all();const nodes=tree(await this.visible());
+      const parentId=body.parentId===undefined?a.parentId:body.parentId;
+      const chain=ancestry(nodes,parentId);
+      if(parentId===id || chain.some(n=>n.id===id))throw new HttpError(409,'An article cannot be moved inside itself');
+      const updated={...a,name:body.name??a.name,parentId,ancestors:chain,updatedAt:new Date().toISOString(),indexPending:true};
+      const changes=[updated];
+      for(const child of all){const position=child.ancestors.findIndex(n=>n.id===id);if(position<0)continue;
+        let previous=id;const tail=child.ancestors.slice(position+1).map(n=>{const node={...n,parentId:previous,id:n.kind==='folder'?folderId(previous,n.name):n.id};previous=node.id;return node;});
+        const ancestors=[...chain,{id,name:updated.name,slug:a.slug,parentId,kind:'article' as const},...tail];
+        if(ancestors.length>100)throw new HttpError(400,'Hierarchy is too deep');
+        changes.push({...child,ancestors,parentId:previous,indexPending:true,updatedAt:updated.updatedAt});
+      }
+      if(bytes)Object.assign(updated,{size:bytes.length,contentHash:contentHash(bytes),imagePaths});
+      const intent:EditIntent={id,changes,markdown:body.markdown,removedImages:imagePaths?a.imagePaths.filter(path=>!imagePaths.includes(path)):[]};
+      await this.storage.editIntent(intent);await this.finishEdit(intent);
+      return updated;
+    });
+  }
+  async recoverEdits(){for(const intent of await this.storage.edits())await this.finishEdit(intent);}
+  private async finishEdit(intent:EditIntent){
+    if(intent.markdown!==undefined)await this.storage.replace(intent.id,'content.md',Buffer.from(intent.markdown));
+    for(const change of intent.changes)await this.commit(change);
+    for(const path of intent.removedImages)await this.storage.removeImage(intent.id,path);
+    await this.storage.finishEdit(intent.id);
+  }
+  async removeImage(id:string,filename:string){return this.lock.run(async()=>{const a=await this.active(id);const path=imagePath(filename);if(!a.imagePaths.includes(path))throw new HttpError(404,'Image is not referenced');await this.storage.removeImage(id,path);return {removed:true};});}
   async read(slug: string): Promise<ArticleDto> {
     const a = await this.repo.bySlug(slug);
     if (!a || a.state !== 'published' || (await this.storage.deletedIds()).has(a._id)) throw new HttpError(404, 'Article not found');
@@ -112,6 +149,7 @@ export class Articles {
   }
   async delete(id: string) {
     return this.lock.run(async () => {
+      await this.recoverEdits();
       const articles = [...new Map([...(await this.repo.all()), ...(await this.storage.loadAll())].map(a => [a._id, a])).values()];
       const nodes = tree(articles);
       const ids = descendants(nodes, id);
@@ -134,6 +172,7 @@ export class Articles {
   }
   async reconcile() {
     return this.lock.run(async () => {
+      await this.recoverEdits();
       for (const intent of await this.storage.intents()) await this.finishDelete(intent);
       const deleted = await this.storage.deletedIds();
       const stored = (await this.storage.loadAll()).filter(a => !deleted.has(a._id));
@@ -153,6 +192,7 @@ export class Articles {
   }
   async rebuildIndex() {
     await this.lock.run(async () => {
+      await this.recoverEdits();
       for (const a of await this.storage.loadAll()) if (a.state === 'published') await this.commit({ ...a, indexPending: true });
     });
     await this.reconcile();

@@ -48,7 +48,8 @@ is `exact`, `slug`, or `label`. The response excludes drafts, missing disk conte
 and items with a deletion intent, even if Elasticsearch contains stale documents.
 
 Dates cross HTTP as ISO 8601 strings. MongoDB stores BSON dates; admin and
-notification IDs are BSON ObjectIds. Article and hierarchy IDs are UUID strings.
+owner notification IDs are BSON ObjectIds; client notification IDs are opaque strings.
+User, article, quiz, attempt, deck, and hierarchy IDs are UUID strings.
 Storage manifests include lifecycle state, content hash, ancestor nodes, declared
 image paths, and pending-index state in addition to the specified article fields.
 
@@ -59,3 +60,41 @@ image paths, and pending-index state in addition to the specified article fields
 - [Elasticsearch function-score semantics](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-function-score-query)
 - [BullMQ retries and attempts](https://docs.bullmq.io/guide/retrying-failing-jobs)
 - [Gemini GenerateContent contract](https://ai.google.dev/api/generate-content)
+
+
+## Learning and editing additions
+
+Client routes require a client Bearer token; owner tokens are rejected there. Client
+tokens cannot access `/admin/*`. Public article/search routes remain unauthenticated.
+
+| Method and path | Request | Response |
+| --- | --- | --- |
+| `POST /auth/register` | `{email,password}` | `202`; email sent, no user created |
+| `POST /auth/verify` | `{email,code}` | `{token}`; creates verified client |
+| `POST /auth/login` | `{email,password}` | `{token}` |
+| `GET /auth/me` | — | `{id,email,role,premium}` |
+| `POST /premium/unlock` | `{code:"FREE"}` | `{premium:true}` permanently |
+| `GET /search/suggest?q=` | Minimum 3 characters | Same ranking as search, at most 5 hits |
+| `POST /admin/quizzes` | `{title,questions:[{id,stem,options,correctIndex,explanation?}]}` | `201`; live for 24 hours |
+| `GET /admin/quizzes` | — | Live quizzes, including keys |
+| `GET /quizzes` | — | Live quiz summaries without keys, `serverNow` |
+| `POST /quizzes/:id/start` | — | Existing/new session, questions without keys, `startedAt`, `deadlineAt`, `serverNow` |
+| `PUT /quizzes/:id/answers` | `{answers:{questionId:index}}` | Saves answers before deadline |
+| `POST /quizzes/:id/submit` | `{answers:{questionId:index}}` | `202`; immutable submission, grading queued |
+| `GET /quizzes/attempts/me` | — | `{results}` with title/date, own attempt or null, status |
+| `GET /quizzes/:id/review` | — | Live questions/keys/explanations, only after own completed attempt |
+| `POST /admin/articles/:id/flashcards` | — | `202` queued, or `{exists:true}` |
+| `GET /flashcards` | Premium client | Deck summaries |
+| `GET /flashcards/by-article/:articleId` | Premium client | Deck Markdown |
+| `GET /notifications` | — | Own notifications plus active-quiz notices |
+| `PATCH /notifications/:id/read` | — | Marks only the caller's notification read |
+| `PATCH /admin/articles/:id` | `{name?,parentId?,markdown?}` | Updated article; labels/deck preserved |
+| `POST /admin/articles/:id/images?replace=true` | One multipart image | Explicitly replaces/adds a declared image |
+| `DELETE /admin/articles/:id/image?path=...` | Safe relative path | Removes that image file |
+
+Non-premium flashcard requests return `403 {error:"upgrade to premium",code:"PREMIUM_REQUIRED"}`.
+Submitting after the deadline freezes the last saved answers; late payloads are
+ignored. Submitted answers and final attempts cannot be changed. There are no quiz
+mutation routes after creation, role-change routes, or premium-revocation routes.
+
+`GET /admin/articles/:id/flashcards` (owner only) returns `status`: `none`, `queued`, `generating`, `ready`, or `failed`, with a safe error message for failures.

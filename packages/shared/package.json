@@ -1,5 +1,16 @@
 {
-  "name": "@wiki/shared", "version": "1.0.0", "private": true, "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "zod": "4.4.3" }
+  "name": "@wiki/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3",
+    "react": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
+  }
 }

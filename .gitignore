@@ -1,5 +1,7 @@
 node_modules/
 .temp
+design.md
+delta.md
 dist/
 .env
 .env.*
@@ -9,3 +11,5 @@ test-results/
 data/
 infra/tls/
 *.log
+
+apps/*/public/vendor/

@@ -6,6 +6,7 @@ import { idSchema, type Article } from '@wiki/shared';
 import { HttpError, isMissing } from '../lib/errors.ts';
 import { imagePath } from '../lib/markdown.ts';
 
+export interface EditIntent { id:string; changes:Article[]; markdown?:string; removedImages:string[] }
 export interface DeleteIntent { id: string; articleIds: string[]; createdAt: string }
 export class Storage {
   readonly root: string;
@@ -16,7 +17,7 @@ export class Storage {
   async init() {
     await mkdir(this.root, { recursive: true });
     if ((await lstat(this.root)).isSymbolicLink()) throw new Error('Object storage root cannot be a symlink');
-    for (const dir of ['articles', '.drafts', '.deletions']) await this.ensureDirectory(join(this.root, dir));
+    for (const dir of ['articles', '.drafts', '.deletions', '.edits']) await this.ensureDirectory(join(this.root, dir));
   }
   private async ensureDirectory(path: string) {
     let cursor = this.root;
@@ -69,6 +70,14 @@ export class Storage {
       }
     } finally { await unlink(temp).catch(e => { if (!isMissing(e)) throw e; }); }
   }
+  async replace(id: string, filename: string, bytes: Buffer) {
+    const path=this.path(id,filename); await this.ensureDirectory(dirname(path));
+    try { if((await lstat(path)).isSymbolicLink()) throw new HttpError(400,'Symlinks are not valid object keys'); } catch(e){if(!isMissing(e))throw e;}
+    const temp=join(dirname(path),`.${randomUUID()}.tmp`);
+    try { await this.writeDurable(temp,bytes,0o644); await rename(temp,path); await this.syncDirectory(dirname(path)); }
+    finally { await unlink(temp).catch(e=>{if(!isMissing(e))throw e;}); }
+  }
+  async removeImage(id:string,filename:string){const path=this.path(id,imagePath(filename));await this.ensureDirectory(dirname(path));await unlink(path).catch(e=>{if(!isMissing(e))throw e;});await this.syncDirectory(dirname(path));}
   read(id: string) { return readFile(this.path(id, 'content.md'), 'utf8'); }
   async exists(id: string, filename = 'content.md') {
     try { const s = await lstat(this.path(id, filename)); return s.isFile() && !s.isSymbolicLink(); }
@@ -91,6 +100,9 @@ export class Storage {
     }
     return [...records.values()];
   }
+  async editIntent(intent:EditIntent){idSchema.parse(intent.id);await this.atomic(join(this.root,'.edits',`${intent.id}.json`),intent);}
+  async edits():Promise<EditIntent[]>{const values:EditIntent[]=[];for(const name of await readdir(join(this.root,'.edits')))if(name.endsWith('.json'))values.push(JSON.parse(await readFile(join(this.root,'.edits',name),'utf8')));return values;}
+  async finishEdit(id:string){idSchema.parse(id);await unlink(join(this.root,'.edits',`${id}.json`));await this.syncDirectory(join(this.root,'.edits'));}
   async intent(intent: DeleteIntent) { await this.atomic(this.deletePath(intent.id), intent); }
   async intents(): Promise<DeleteIntent[]> {
     const values: DeleteIntent[] = [];

@@ -12,3 +12,5 @@ data
 infra/tls
 test-results
 *.log
+
+**/public/vendor

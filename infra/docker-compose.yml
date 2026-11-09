@@ -38,6 +38,9 @@ services:
   admin-web:
     build: { context: .., dockerfile: apps/admin-web/Dockerfile }
     restart: unless-stopped
+  client-web:
+    build: { context: .., dockerfile: apps/client-web/Dockerfile }
+    restart: unless-stopped
   nginx:
     image: nginx:1.28.0-alpine
     ports: ["80:80", "443:443"]
@@ -46,7 +49,7 @@ services:
       - ./nginx/locations.conf:/etc/nginx/wiki-locations.conf:ro
       - ./tls:/etc/nginx/tls:ro
       - /data/objects:/data/objects
-    depends_on: [api, public-web, admin-web]
+    depends_on: [api, public-web, admin-web, client-web]
     restart: unless-stopped
 volumes:
   mongo-data:

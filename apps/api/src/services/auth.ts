@@ -17,7 +17,7 @@ export class AuthService {
     const key = this.key();
     const admin = await this.repo.admin();
     if (!admin || admin.username !== body.username || !await bcrypt.compare(body.password, admin.passwordHash)) throw new HttpError(401, 'Invalid username or password');
-    return { token: await new SignJWT({ owner: true, version: admin.tokenVersion }).setProtectedHeader({ alg: 'HS256' }).setSubject('owner').setIssuer('nursing-wiki').setAudience('nursing-wiki-admin').setIssuedAt().setExpirationTime('7d').sign(key) };
+    return { token: await new SignJWT({ owner: true, role: 'admin', version: admin.tokenVersion }).setProtectedHeader({ alg: 'HS256' }).setSubject('owner').setIssuer('nursing-wiki').setAudience('nursing-wiki-admin').setIssuedAt().setExpirationTime('7d').sign(key) };
   }
   async authorize(header: string | undefined): Promise<Admin> {
     if (!header?.startsWith('Bearer ')) throw new HttpError(401, 'Owner authentication required');
@@ -25,7 +25,7 @@ export class AuthService {
     let payload;
     try { ({ payload } = await jwtVerify(header.slice(7), key, { algorithms: ['HS256'], issuer: 'nursing-wiki', audience: 'nursing-wiki-admin' })); }
     catch { throw new HttpError(401, 'Session expired or invalid; sign in again'); }
-    if (payload.owner !== true || payload.sub !== 'owner') throw new HttpError(403, 'Owner access required');
+    if (payload.role !== 'admin' || payload.owner !== true || payload.sub !== 'owner') throw new HttpError(403, 'Owner access required');
     const admin = await this.repo.admin();
     if (!admin || payload.version !== admin.tokenVersion) throw new HttpError(401, 'Session revoked; sign in again');
     return admin;

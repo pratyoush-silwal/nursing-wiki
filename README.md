@@ -1,7 +1,11 @@
 # Nursing & Medicine Wiki
 
-A single-owner medical reference library: immutable Markdown articles, relative
-images, implicit folders, public reading/search, and a separate administration app.
+A medical reference and learning library: editable Markdown articles, relative
+images, nested organization, verified client accounts, timed quizzes, premium
+flashcards, and separate public, client, and owner apps.
+
+For the latest upgrade, SMTP setup, and learning workflows, see
+[Version 1.1 setup and behavior](docs/delta-1.1.md).
 
 The implementation follows [specifications.md](specifications.md). See the
 [build plan](docs/build-plan.md), [architecture](docs/architecture.md),
@@ -61,7 +65,8 @@ certificate for the hostname you will use. Only Nginx publishes host ports.
    want to retain application data.
 
 Open `https://localhost/` for the library and `https://localhost/admin/` for owner
-access. The first boot seeds the owner from environment variables. Future boots
+access. Client sign-in and registration are at `https://localhost/client/`.
+The first boot seeds the owner from environment variables. Future boots
 preserve changed credentials. After initial setup, remove `ADMIN_PASSWORD` from
 the runtime environment if you do not need automated seeding after restoration.
 
@@ -110,6 +115,7 @@ npm install
 npm run dev:api
 npm run dev:public
 npm run dev:admin
+npm run dev:client
 ```
 
 Public development uses `http://127.0.0.1:5173`; administration uses
@@ -138,7 +144,9 @@ An upload first reserves private metadata, then publishes immutable Markdown, th
 uploads images individually. New folders become visible with successful Markdown
 publication. A network failure can be retried using **Resume** for a draft or
 **Add missing images** for a published article. Identical bytes are accepted;
-replacement bytes are rejected. Delete and recreate an article to change it.
+replacement bytes are rejected on the initial-upload endpoints. Select **Edit article**
+to change Markdown, replace images, or move an article without regenerating labels
+or flashcards.
 
 Deleting a folder or parent article also deletes every descendant. The UI asks for
 confirmation. Disk bytes disappear before metadata and search cleanup; interrupted
@@ -206,7 +214,7 @@ environment variables skip the real-service suite explicitly.
   Put the deployment on appropriately controlled infrastructure.
 
 Back up the entire object volume **and** MongoDB (owner credentials and
-notifications) plus Redis (pending attempts/DLQ). Take coordinated backups with
+notifications) plus Redis (pending label/grading/flashcard jobs). Take coordinated backups with
 the writer stopped. Elasticsearch can be rebuilt. Preserve `.deletions/` during
 backup and restore so deleted articles are not resurrected.
 
@@ -225,9 +233,12 @@ normal public reading even though the files are the existence source of truth.
 
 ## Delivery status
 
-Source implementation is present for the complete requested stack. Both SPA
+Source implementation is present for the complete requested stack. All three SPA
 production builds, focused TypeScript validation, core tests, and Compose parsing
 have been exercised. Full backend dependency installation, HTTP/real-service
 integration, browser rendering, live Gemini, and container startup remain
 unverified in this restricted environment. See the exact record in
 [docs/verification.md](docs/verification.md) before deploying.
+
+Version 1.1 verification and remaining live checks are recorded in
+[the delta delivery notes](docs/delta-1.1.md#verification).

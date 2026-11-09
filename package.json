@@ -3,21 +3,28 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=22.12.0" },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev:api": "npm run dev -w @wiki/api",
     "dev:public": "npm run dev -w @wiki/public-web",
     "dev:admin": "npm run dev -w @wiki/admin-web",
     "typecheck": "tsc --noEmit",
     "typecheck:core": "tsc --noEmit -p tsconfig.core.json",
-    "build": "npm run build -w @wiki/public-web && npm run build -w @wiki/admin-web && npm run build -w @wiki/api",
+    "build": "npm run vendor && npm run build -w @wiki/public-web && npm run build -w @wiki/client-web && npm run build -w @wiki/admin-web && npm run build -w @wiki/api",
     "test": "tsx --test apps/api/tests/*.test.ts",
     "test:core": "tsx --test apps/api/tests/core.test.ts apps/api/tests/lifecycle.test.ts",
     "test:services": "tsx --test apps/api/tests/services.integration.ts",
     "test:browser": "tsx --test apps/api/tests/browser.integration.ts",
     "seed": "tsx --env-file-if-exists=.env scripts/seed-admin.ts",
-    "reconcile": "tsx --env-file-if-exists=.env scripts/reconcile.ts"
+    "reconcile": "tsx --env-file-if-exists=.env scripts/reconcile.ts",
+    "dev:client": "npm run dev -w @wiki/client-web",
+    "vendor": "node scripts/copy-vendor.mjs"
   },
   "devDependencies": {
     "@types/mdast": "4.0.4",
@@ -27,6 +34,9 @@
     "playwright": "1.62.0",
     "tsx": "4.23.12",
     "typescript": "5.9.3",
-    "vite": "7.3.1"
+    "vite": "7.3.1",
+    "mathjax": "3.2.2",
+    "chart.js": "4.5.1",
+    "mermaid": "11.17.1"
   }
 }
