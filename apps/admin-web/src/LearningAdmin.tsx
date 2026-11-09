@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type DragEvent, type FormEvent } from 'react';
 import type { Article, ArticleDto, TreeNode } from '@wiki/shared';
 import type { Question } from '../../../packages/shared/src/learning.ts';
 import { Markdown } from '../../../packages/shared/src/ui/Markdown.tsx';
@@ -68,25 +68,25 @@ export function ArticleEditor({ article, nodes, call, done }: {
         setBusy(false);
     } }}>Remove image</button></div>)}</div><button className="button" disabled={busy}>{busy ? 'Saving…' : 'Publish changes'}</button></fieldset></form></section>;
 }
-const blank = (): Question => ({ id: crypto.randomUUID(), stem: '', options: ['', ''], correctIndex: 0, explanation: '' });
 export function QuizEditor({ call }: {
     call: Call;
 }) {
-    const [title, setTitle] = useState(''), [questions, setQuestions] = useState<Question[]>([blank()]), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [live, setLive] = useState<{
+    const [file, setFile] = useState<File | null>(null), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [live, setLive] = useState<{
         _id: string;
         title: string;
         expiresAt: string;
+        questions: Question[];
     }[]>([]);
     const refresh = () => call<{
         quizzes: typeof live;
     }>('/admin/quizzes').then(r => setLive(r.quizzes)).catch(e => setError(e.message));
     useEffect(() => { void refresh(); }, []);
-    function update(index: number, patch: Partial<Question>) { setQuestions(all => all.map((q, i) => i === index ? { ...q, ...patch } : q)); }
-    async function submit(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try {
-        await call('/admin/quizzes', json('POST', { title, questions }));
-        setNotice('Quiz is live for 24 hours. It cannot be edited.');
-        setTitle('');
-        setQuestions([blank()]);
+    function choose(file?: File) { setError(''); if (file && !file.name.toLowerCase().endsWith('.md')) { setFile(null); setError('Choose a Markdown (.md) file.'); return; } setFile(file ?? null); }
+    function drop(e: DragEvent<HTMLLabelElement>) { e.preventDefault(); setDragging(false); choose(e.dataTransfer.files[0]); }
+    async function submit(e: FormEvent) { e.preventDefault(); if (!file) return; setBusy(true); setError(''); try {
+        const result = await call<{ title: string; questions: Question[] }>('/admin/quizzes/import', json('POST', { markdown: await file.text() }));
+        setNotice(`“${result.title}” is live with ${result.questions.length} questions for 24 hours. The answer key stays private.`);
+        setFile(null);
         await refresh();
     }
     catch (e) {
@@ -95,5 +95,10 @@ export function QuizEditor({ call }: {
     finally {
         setBusy(false);
     } }
-    return <section><p className="eyebrow">Learning together</p><h1>Quizzes</h1><p className="muted">Publish a global quiz for 24 hours. Each client gets one attempt, with one minute per question.</p>{live.map(q => <div className="quiz-live-row" key={q._id}><strong>{q.title}</strong><span>Closes {new Date(q.expiresAt).toLocaleString()}</span></div>)}{notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}<form onSubmit={submit}><fieldset disabled={busy}><legend className="sr-only">Create quiz</legend><label htmlFor="quiz-title">Quiz title</label><input id="quiz-title" value={title} onChange={e => setTitle(e.target.value)} required maxLength={160}/>{questions.map((q, i) => <section className="quiz-editor-question" key={q.id}><h2>Question {i + 1}</h2><label>Question Markdown<textarea value={q.stem} onChange={e => update(i, { stem: e.target.value })} required/></label>{q.options.map((option, j) => <div className="option-editor" key={j}><label><input type="radio" name={`correct-${q.id}`} checked={q.correctIndex === j} onChange={() => update(i, { correctIndex: j })}/> Correct</label><label>Option {j + 1}<input value={option} onChange={e => update(i, { options: q.options.map((v, k) => j === k ? e.target.value : v) })} required/></label>{q.options.length > 2 && <button type="button" className="text-button" onClick={() => update(i, { options: q.options.filter((_, k) => k !== j), correctIndex: 0 })}>Remove option</button>}</div>)}{q.options.length < 8 && <button className="text-button" type="button" onClick={() => update(i, { options: [...q.options, ''] })}>Add option</button>}<label>Explanation Markdown<textarea value={q.explanation} onChange={e => update(i, { explanation: e.target.value })}/></label><details><summary>Preview question</summary><Markdown text={q.stem}/><Markdown text={q.explanation}/></details>{questions.length > 1 && <button className="text-button" type="button" onClick={() => setQuestions(all => all.filter((_, j) => i !== j))}>Remove question</button>}</section>)}<div className="actions"><button className="button secondary" type="button" disabled={questions.length >= 60} onClick={() => setQuestions(all => [...all, blank()])}>Add question</button><button className="button" disabled={busy}>{busy ? 'Publishing…' : 'Publish quiz for 24 hours'}</button></div></fieldset></form></section>;
+    return <section className="quiz-admin"><p className="eyebrow">Learning together</p><h1>Quizzes</h1><p className="muted">Upload one Markdown file containing the questions and answer key. Clients receive only the questions. Each quiz stays live for 24 hours, with one attempt per client.</p>
+        {live.length > 0 && <section className="quiz-live-panel"><h2>Live quizzes</h2>{live.map(q => <article className="quiz-live-row" key={q._id}><div><strong>{q.title}</strong><p>{q.questions.length} questions</p></div><span>Closes {new Date(q.expiresAt).toLocaleString()}</span></article>)}</section>}
+        {notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}
+        <form className="quiz-upload-form" onSubmit={submit}><fieldset disabled={busy}><legend className="sr-only">Upload a quiz</legend><label htmlFor="quiz-markdown-file">Quiz Markdown file</label><label className={`quiz-dropzone${dragging ? ' is-dragging' : ''}`} htmlFor="quiz-markdown-file" onDragEnter={e => { e.preventDefault(); setDragging(true); }} onDragOver={e => e.preventDefault()} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false); }} onDrop={drop}><span className="quiz-drop-icon" aria-hidden="true">↑</span><strong>{file ? file.name : 'Drop your .md file here'}</strong><span>{file ? `${(file.size / 1024).toFixed(1)} KB · ready to publish` : 'or click to browse · maximum 200 KB'}</span><input id="quiz-markdown-file" className="sr-only" type="file" accept=".md,text/markdown" onChange={e => choose(e.target.files?.[0])}/></label>
+            <p className="quiz-format-hint">Use the question format in <code>demo_quiz.md</code>. Put the JSON answer key after a <code>---</code> separator.</p><div className="actions"><button className="button" disabled={busy || !file}>{busy ? 'Publishing…' : 'Publish quiz for 24 hours'}</button>{file && <button className="text-button" type="button" onClick={() => choose()}>Remove file</button>}</div></fieldset></form>
+    </section>;
 }

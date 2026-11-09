@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { idSchema } from '@wiki/shared';
+import { parseDeck, parseQuizMarkdown } from '../../../../packages/shared/src/learning.ts';
 import type { Learning } from '../services/learning.ts';
 import type { LearningQueues } from '../workers/learning.ts';
 import { HttpError } from '../lib/errors.ts';
@@ -12,6 +15,13 @@ export async function learningRoutes(app: FastifyInstance, l: Learning, queues: 
     app.get('/auth/me', async (req) => { const { _id, email, premium } = await l.authorize(req.headers.authorization); return { id: _id, email, premium, role: 'client' }; });
     app.post('/premium/unlock', async (req) => l.unlock(await l.authorize(req.headers.authorization), req.body));
     app.post('/admin/quizzes', async (req, reply) => reply.code(201).send(await l.createQuiz(req.body, '00000000-0000-4000-8000-000000000001')));
+    app.post('/admin/quizzes/import', async (req, reply) => {
+        const { markdown } = z.object({ markdown: z.string().max(200000) }).strict().parse(req.body);
+        let quiz;
+        try { quiz = parseQuizMarkdown(markdown); }
+        catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Invalid quiz Markdown'); }
+        return reply.code(201).send(await l.createQuiz(quiz, '00000000-0000-4000-8000-000000000001'));
+    });
     app.get('/admin/quizzes', async () => ({ quizzes: await l.quizzes.find({ expiresAt: { $gt: new Date() } }).sort({ activatedAt: -1 }).toArray() }));
     app.get('/quizzes', async (req) => { await l.authorize(req.headers.authorization); return { quizzes: (await l.quizzes.find({ expiresAt: { $gt: new Date() } }).toArray()).map(({ questions, ...q }) => ({ ...q, questionCount: questions.length })), serverNow: new Date() }; });
     app.get('/quizzes/attempts/me', async (req) => ({ results: await l.results((await l.authorize(req.headers.authorization))._id) }));
@@ -30,12 +40,6 @@ export async function learningRoutes(app: FastifyInstance, l: Learning, queues: 
             id: string;
         };
     }>('/quizzes/:id/submit', async (req, reply) => { const session = await l.saveAnswers(idSchema.parse(req.params.id), (await l.authorize(req.headers.authorization))._id, req.body, true); void queues()?.grade(session._id).catch(e => app.log.warn({ err: e }, 'Grading dispatch will retry')); return reply.code(202).send({ queued: true }); });
-    app.get<{
-        Params: {
-            id: string;
-        };
-    }>('/quizzes/:id/review', async (req) => { const id = idSchema.parse(req.params.id); const user = await l.authorize(req.headers.authorization); if (!await l.attempts.findOne({ quizId: id, userId: user._id }))
-        throw new HttpError(403, 'Complete the quiz to review it'); return l.live(id); });
     app.post<{
         Params: {
             id: string;
@@ -43,6 +47,15 @@ export async function learningRoutes(app: FastifyInstance, l: Learning, queues: 
     }>('/admin/articles/:id/flashcards', async (req, reply) => { const id = idSchema.parse(req.params.id); const a = await l.articles.repo.get(id); if (!a || a.state !== 'published')
         throw new HttpError(404, 'Article not found'); if (await l.decks.findOne({ articleId: id }))
         return { exists: true }; await jobs().generate(id, '00000000-0000-4000-8000-000000000001'); return reply.code(202).send({ queued: true }); });
+    app.put<{ Params: { id: string } }>('/admin/articles/:id/flashcards', async (req, reply) => {
+        const id = idSchema.parse(req.params.id);
+        const article = await l.articles.repo.get(id);
+        if (!article || article.state !== 'published' || !await l.articles.storage.exists(id)) throw new HttpError(404, 'Article not found');
+        const { markdown } = z.object({ markdown: z.string().max(200000) }).strict().parse(req.body);
+        try { parseDeck(markdown); } catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Invalid flashcard deck'); }
+        const result = await l.articles.lock.run(() => l.decks.updateOne({ articleId: id }, { $setOnInsert: { _id: randomUUID(), articleId: id, title: article.name, markdown, createdBy: 'demo-seed', createdAt: new Date() } }, { upsert: true }));
+        return reply.code(result.upsertedCount ? 201 : 200).send({ seeded: !!result.upsertedCount, exists: !result.upsertedCount });
+    });
     app.get<{ Params: { id: string } }>('/admin/articles/:id/flashcards', async req => {
         const articleId = idSchema.parse(req.params.id);
         const article = await l.articles.repo.get(articleId);

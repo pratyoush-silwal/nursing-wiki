@@ -6,6 +6,31 @@ export const questionSchema = z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{1,
 export const quizSchema = z.object({ title: z.string().trim().min(1).max(160), questions: z.array(questionSchema).min(1).max(60) }).strict().refine(q => new Set(q.questions.map(x => x.id)).size === q.questions.length, 'Question IDs must be unique');
 export const answersSchema = z.record(z.string().max(80), z.number().int().min(0).max(7));
 export type Question = z.infer<typeof questionSchema>;
+export function parseQuizMarkdown(markdown: string) {
+    const key = markdown.match(/\n---\s*\n\s*```json\s*\n([\s\S]*?)\n```\s*$/);
+    if (!key || markdown.length > 200000) throw new Error('Quiz Markdown must end with an answer key after a --- separator');
+    const source = markdown.slice(0, key.index).replace(/^\uFEFF?---\s*/, '').trim();
+    const headers = [...source.matchAll(/^\*\*(\d+)\.\s*(.+?)\*\*\s*$/gm)];
+    if (!headers.length || headers.length > 60 || source.slice(0, headers[0].index).trim()) throw new Error('Quiz must contain numbered bold questions');
+    const questions = headers.map((header, index) => {
+        const start = header.index! + header[0].length;
+        const body = source.slice(start, headers[index + 1]?.index ?? source.length);
+        const options = [...body.matchAll(/^\s*- \[ \] (.+?)\s*$/gm)];
+        if (options.length < 2 || options.length > 8) throw new Error(`Question ${header[1]} must have 2–8 unchecked options`);
+        const stem = [header[2].trim(), body.slice(0, options[0].index).trim()].filter(Boolean).join('\n\n');
+        return { id: `q-${header[1]}`, stem, options: options.map(option => option[1].trim()), correctIndex: 0, explanation: '' };
+    });
+    const answerKey = z.object({ quiz: z.string().trim().min(1).max(160), answers: z.array(z.object({ question: z.number().int().min(1), answer: z.string().trim().min(1) }).strict()).min(1).max(60) }).strict().parse(JSON.parse(key[1]));
+    if (answerKey.answers.length !== questions.length || new Set(answerKey.answers.map(a => a.question)).size !== questions.length) throw new Error('Answer key must contain one entry for every question');
+    for (const answer of answerKey.answers) {
+        const question = questions[answer.question - 1];
+        if (!question || question.id !== `q-${answer.question}`) throw new Error(`Answer key references missing question ${answer.question}`);
+        const correctIndex = question.options.indexOf(answer.answer);
+        if (correctIndex < 0) throw new Error(`Answer for question ${answer.question} does not match an option`);
+        question.correctIndex = correctIndex;
+    }
+    return quizSchema.parse({ title: answerKey.quiz, questions });
+}
 export interface ClientUser {
     _id: string;
     email: string;

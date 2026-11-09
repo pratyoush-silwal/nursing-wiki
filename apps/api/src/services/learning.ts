@@ -148,8 +148,11 @@ export class Learning {
             if (!await this.attempts.findOne({ _id: session._id }))
                 await enqueue(session._id);
         for (const quiz of await this.quizzes.find({ expiresAt: { $lte: now } }).toArray()) {
-            for (const session of await this.sessions.find({ quizId: quiz._id }).toArray())
-                await this.gradeSession(session._id);
+            let graded = true;
+            for (const session of await this.sessions.find({ quizId: quiz._id }).toArray()) {
+                if (!await this.attempts.findOne({ _id: session._id })) graded = false;
+            }
+            if (!graded) continue;
             await this.history.updateOne({ _id: quiz._id }, { $setOnInsert: { _id: quiz._id, title: quiz.title, activatedAt: quiz.activatedAt, expiresAt: quiz.expiresAt } }, { upsert: true });
             await this.quizzes.deleteOne({ _id: quiz._id });
             await this.sessions.deleteMany({ quizId: quiz._id });

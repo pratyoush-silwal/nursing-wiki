@@ -52,7 +52,7 @@ Usage: scripts/wiki.sh COMMAND [SERVICE...]
   restart        Restart all services
   status         Show service and API health status
   logs [SERVICE] Follow all logs, or just the named service (default: api)
-  seed-demo      Import the 106-article nursing demo collection (prompts for owner login)
+  seed-demo      Import 106 demo articles and six sample flashcard decks (prompts for owner login)
   down           Remove containers and network; preserve all data volumes
 EOF
 }

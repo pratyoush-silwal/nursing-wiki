@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { nameSchema, slugSchema } from '../packages/shared/src/index.ts';
+import { parseDeck } from '../packages/shared/src/learning.ts';
 import { demoArticles } from './demo-content.ts';
+import { demoFlashcards } from './demo-flashcards.ts';
 
 type Existing = { _id: string; name: string; slug: string; parentId: string | null; state: 'draft' | 'published' };
 const ordered = new Map<string, number>();
@@ -10,7 +12,9 @@ for (const [index, article] of demoArticles.entries()) {
   ordered.set(article.slug, index);
 }
 if (process.argv.includes('--check')) {
-  console.log(`Demo collection validated: ${demoArticles.length} articles, including 80 leaf topics.`);
+  const slugs = new Set(demoArticles.map(article => article.slug));
+  if (Object.keys(demoFlashcards).length !== 6 || Object.entries(demoFlashcards).some(([slug, markdown]) => !slugs.has(slug) || parseDeck(markdown).length < 8)) throw new Error('Invalid demo flashcard fixtures');
+  console.log(`Demo collection validated: ${demoArticles.length} articles and ${Object.keys(demoFlashcards).length} flashcard decks.`);
 } else {
   let input = '';
   for await (const chunk of process.stdin) input += chunk.toString();
@@ -55,5 +59,12 @@ if (process.argv.includes('--check')) {
     }
     if ((created + resumed + skipped) % 20 === 0) console.log(`Processed ${created + resumed + skipped}/${demoArticles.length} demo articles`);
   }
-  console.log(`Demo import complete: ${created} created, ${resumed} resumed, ${skipped} already present.`);
+  let decksCreated = 0, decksPresent = 0;
+  for (const [slug, markdown] of Object.entries(demoFlashcards)) {
+    const article = known.get(slug);
+    if (!article || article.state !== 'published') throw new Error(`Demo flashcard article is not published: ${slug}`);
+    const result = await request<{ seeded: boolean }>('PUT', `/admin/articles/${article._id}/flashcards`, JSON.stringify({ markdown }), 'application/json');
+    if (result.seeded) decksCreated++; else decksPresent++;
+  }
+  console.log(`Demo import complete: ${created} created, ${resumed} resumed, ${skipped} already present; ${decksCreated} sample decks added, ${decksPresent} existing decks preserved.`);
 }
