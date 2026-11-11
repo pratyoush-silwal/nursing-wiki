@@ -11,6 +11,8 @@ interface Pending {
     _id: string;
     passwordHash: string;
     codeHash: string;
+    expiresAt: Date;
+    attempts: number;
 }
 interface History {
     _id: string;
@@ -18,6 +20,7 @@ interface History {
     activatedAt: Date;
     expiresAt: Date;
 }
+const DUMMY_PASSWORD_HASH = '$2b$12$xNpQt9B0E57uTexIzSVn9ODIuWBZPr4qrMHwYjusHOyA8BX6pGCyK';
 export class Learning {
     readonly lock = new Lock();
     constructor(readonly db: Db, private secret: string | undefined, private send: (email: string, code: string) => Promise<void>, readonly articles: Articles) { }
@@ -28,7 +31,7 @@ export class Learning {
     get attempts() { return this.db.collection<QuizAttempt>('quizAttempts'); }
     get history() { return this.db.collection<History>('quizHistory'); }
     get decks() { return this.db.collection<Deck>('flashcardDecks'); }
-    async initialize() { await Promise.all([this.users.createIndex({ email: 1 }, { unique: true, partialFilterExpression: { role: 'client' } }), this.users.createIndex({ role: 1 }), this.sessions.createIndex({ quizId: 1, userId: 1 }, { unique: true }), this.attempts.createIndex({ quizId: 1, userId: 1 }, { unique: true }), this.decks.createIndex({ articleId: 1 }, { unique: true }), this.quizzes.createIndex({ expiresAt: 1 }), this.sessions.createIndex({ submittedAt: 1, deadlineAt: 1 }), this.attempts.createIndex({ userId: 1 }), this.db.collection('notifications').createIndex({ userId: 1, createdAt: -1 })]); }
+    async initialize() { await Promise.all([this.users.createIndex({ email: 1 }, { unique: true, partialFilterExpression: { role: 'client' } }), this.users.createIndex({ role: 1 }), this.sessions.createIndex({ quizId: 1, userId: 1 }, { unique: true }), this.attempts.createIndex({ quizId: 1, userId: 1 }, { unique: true }), this.decks.createIndex({ articleId: 1 }, { unique: true }), this.quizzes.createIndex({ expiresAt: 1 }), this.sessions.createIndex({ submittedAt: 1, deadlineAt: 1 }), this.attempts.createIndex({ userId: 1 }), this.db.collection('notifications').createIndex({ userId: 1, createdAt: -1 })]); await this.pending.updateMany({ expiresAt: { $exists: false } }, { $set: { expiresAt: new Date(0), attempts: 0 } }); }
     private key() { if (!this.secret || this.secret.startsWith('replace-') || Buffer.byteLength(this.secret) < 32)
         throw new HttpError(503, 'Authentication is not configured'); return new TextEncoder().encode(this.secret); }
     private hash(email: string, code: string) { return createHmac('sha256', this.key()).update(`${email}:${code}`).digest('hex'); }
@@ -39,10 +42,21 @@ export class Learning {
         return this.lock.run(async () => {
             if (await this.users.findOne({ email: body.email }))
                 throw new HttpError(409, 'An account already exists for this email');
+            const now = new Date();
+            const existing = await this.pending.findOne({ _id: body.email });
+            if (existing && (!existing.expiresAt || existing.expiresAt > now))
+                throw new HttpError(409, 'A verification is already pending for this email; use the code already sent');
             const code = String(randomInt(100000, 1000000));
-            const pending = { _id: body.email, passwordHash: await bcrypt.hash(body.password, 12), codeHash: this.hash(body.email, code) };
-            await this.send(body.email, code);
-            await this.pending.replaceOne({ _id: body.email }, pending, { upsert: true });
+            const pending = { _id: body.email, passwordHash: await bcrypt.hash(body.password, 12), codeHash: this.hash(body.email, code), expiresAt: new Date(now.getTime() + 10 * 60_000), attempts: 0 };
+            if (existing) {
+                const replaced = await this.pending.replaceOne({ _id: body.email, expiresAt: { $lte: now } }, pending);
+                if (replaced.matchedCount !== 1) throw new HttpError(409, 'A verification is already pending for this email; use the code already sent');
+            } else {
+                try { await this.pending.insertOne(pending); }
+                catch (error) { if ((error as { code?: number }).code === 11000) throw new HttpError(409, 'A verification is already pending for this email; use the code already sent'); throw error; }
+            }
+            try { await this.send(body.email, code); }
+            catch (error) { await this.pending.deleteOne({ _id: body.email, codeHash: pending.codeHash }); throw error; }
             return { message: 'Check your email for the verification code' };
         });
     }
@@ -50,8 +64,15 @@ export class Learning {
         const body = z.object({ email: emailSchema, code: z.string().regex(/^\d{6}$/) }).strict().parse(input);
         return this.lock.run(async () => {
             const pending = await this.pending.findOne({ _id: body.email });
-            if (!pending || !timingSafeEqual(Buffer.from(pending.codeHash, 'hex'), Buffer.from(this.hash(body.email, body.code), 'hex')))
+            if (!pending || !pending.expiresAt || pending.expiresAt <= new Date()) {
+                if (pending) await this.pending.deleteOne({ _id: body.email });
                 throw new HttpError(400, 'Invalid verification code');
+            }
+            if (!timingSafeEqual(Buffer.from(pending.codeHash, 'hex'), Buffer.from(this.hash(body.email, body.code), 'hex'))) {
+                if (pending.attempts + 1 >= 5) await this.pending.deleteOne({ _id: body.email });
+                else await this.pending.updateOne({ _id: body.email }, { $set: { attempts: pending.attempts + 1 } });
+                throw new HttpError(400, 'Invalid verification code');
+            }
             const now = new Date();
             const user: ClientUser = { _id: randomUUID(), email: body.email, passwordHash: pending.passwordHash, role: 'client', premium: false, createdAt: now, updatedAt: now };
             try {
@@ -68,8 +89,7 @@ export class Learning {
             return this.token(user);
         });
     }
-    async login(input: unknown) { const body = z.object({ email: emailSchema, password: z.string().max(72) }).strict().parse(input); this.key(); const user = await this.users.findOne({ email: body.email, role: 'client' }); if (!user || !await bcrypt.compare(body.password, user.passwordHash))
-        throw new HttpError(401, 'Invalid email or password'); return this.token(user); }
+    async login(input: unknown) { const body = z.object({ email: emailSchema, password: z.string().max(72) }).strict().parse(input); this.key(); const user = await this.users.findOne({ email: body.email, role: 'client' }); if (!user) { await bcrypt.compare(body.password, DUMMY_PASSWORD_HASH); throw new HttpError(401, 'Invalid email or password'); } if (!await bcrypt.compare(body.password, user.passwordHash)) throw new HttpError(401, 'Invalid email or password'); return this.token(user); }
     async authorize(header: string | undefined) { if (!header?.startsWith('Bearer '))
         throw new HttpError(401, 'Sign in to continue'); let sub: string | undefined; try {
         const { payload } = await jwtVerify(header.slice(7), this.key(), { algorithms: ['HS256'], issuer: 'nursing-wiki', audience: 'nursing-wiki-client' });
@@ -99,7 +119,6 @@ export class Learning {
         throw new HttpError(409, 'You already completed this quiz'); const session: QuizSession = { _id: randomUUID(), quizId: id, userId, startedAt: now, deadlineAt: new Date(Math.min(+quiz.expiresAt, +now + quiz.questions.length * 60000)), submittedAt: null, answers: {} }; await this.sessions.updateOne({ quizId: id, userId }, { $setOnInsert: session }, { upsert: true }); const saved = (await this.sessions.findOne({ quizId: id, userId }))!; return { ...saved, serverNow: now, questions: quiz.questions.map(({ correctIndex, explanation, ...q }) => q), title: quiz.title }; }); }
     async saveAnswers(id: string, userId: string, input: unknown, submit: boolean, now = new Date()) {
         return this.lock.run(async () => {
-            const { answers } = z.object({ answers: answersSchema }).strict().parse(input);
             const session = await this.sessions.findOne({ quizId: id, userId });
             if (!session)
                 throw new HttpError(409, 'Start the quiz first');
@@ -109,10 +128,11 @@ export class Learning {
                 await this.sessions.updateOne({ _id: session._id, submittedAt: null }, { $set: { submittedAt: session.deadlineAt } });
                 return { ...session, submittedAt: session.deadlineAt };
             }
+            const { answers } = z.object({ answers: answersSchema }).strict().parse(input);
             const quiz = await this.live(id, now);
             for (const [key, value] of Object.entries(answers)) {
-                const q = quiz.questions.find(q => q.id === key);
-                if (!q || value >= q.options.length)
+                const question = quiz.questions.find(q => q.id === key);
+                if (!question || value >= question.options.length)
                     throw new HttpError(400, 'Invalid answer');
             }
             const submittedAt = submit ? now : null;

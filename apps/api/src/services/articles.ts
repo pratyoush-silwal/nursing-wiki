@@ -176,9 +176,7 @@ export class Articles {
       for (const intent of await this.storage.intents()) await this.finishDelete(intent);
       const deleted = await this.storage.deletedIds();
       const stored = (await this.storage.loadAll()).filter(a => !deleted.has(a._id));
-      const storedIds = new Set(stored.map(a => a._id));
-      const stale = (await this.repo.all()).filter(a => !storedIds.has(a._id)).map(a => a._id);
-      if (stale.length) { await this.repo.remove(stale); await this.index.remove(stale); }
+      // Missing objects are ambiguous during mount or disk failures; only deletion intents authorize metadata removal.
       for (const a of stored) {
         await this.repo.put(a);
       }

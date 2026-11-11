@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, rename, link, unlink, readdir, rm, access, lstat, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { idSchema, type Article } from '@wiki/shared';
 import { HttpError, isMissing } from '../lib/errors.ts';
@@ -78,7 +78,21 @@ export class Storage {
     finally { await unlink(temp).catch(e=>{if(!isMissing(e))throw e;}); }
   }
   async removeImage(id:string,filename:string){const path=this.path(id,imagePath(filename));await this.ensureDirectory(dirname(path));await unlink(path).catch(e=>{if(!isMissing(e))throw e;});await this.syncDirectory(dirname(path));}
-  read(id: string) { return readFile(this.path(id, 'content.md'), 'utf8'); }
+  async read(id: string) {
+    const path = this.path(id, 'content.md');
+    if ((await lstat(this.root)).isSymbolicLink()) throw new HttpError(400, 'Object storage root cannot be a symlink');
+    let cursor = this.root;
+    for (const part of path.slice(this.root.length + 1).split(sep)) {
+      cursor = join(cursor, part);
+      const stat = await lstat(cursor);
+      if (stat.isSymbolicLink()) throw new HttpError(400, 'Symlinks are not valid object keys');
+    }
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      if (!(await file.stat()).isFile()) throw new HttpError(400, 'Object is not a regular file');
+      return await file.readFile('utf8');
+    } finally { await file.close(); }
+  }
   async exists(id: string, filename = 'content.md') {
     try { const s = await lstat(this.path(id, filename)); return s.isFile() && !s.isSymbolicLink(); }
     catch (e) { if (isMissing(e)) return false; throw e; }

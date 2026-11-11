@@ -5,6 +5,7 @@ import type { Admin, Repository } from '../models/repository.ts';
 import { HttpError } from '../lib/errors.ts';
 import { Lock } from '../lib/lock.ts';
 
+const DUMMY_PASSWORD_HASH = '$2b$12$xNpQt9B0E57uTexIzSVn9ODIuWBZPr4qrMHwYjusHOyA8BX6pGCyK';
 export class AuthService {
   private lock = new Lock();
   constructor(private repo: Repository, private secret: string | undefined) {}
@@ -16,7 +17,11 @@ export class AuthService {
     const body = loginSchema.parse(input);
     const key = this.key();
     const admin = await this.repo.admin();
-    if (!admin || admin.username !== body.username || !await bcrypt.compare(body.password, admin.passwordHash)) throw new HttpError(401, 'Invalid username or password');
+    if (!admin || admin.username !== body.username) {
+      await bcrypt.compare(body.password, DUMMY_PASSWORD_HASH);
+      throw new HttpError(401, 'Invalid username or password');
+    }
+    if (!await bcrypt.compare(body.password, admin.passwordHash)) throw new HttpError(401, 'Invalid username or password');
     return { token: await new SignJWT({ owner: true, role: 'admin', version: admin.tokenVersion }).setProtectedHeader({ alg: 'HS256' }).setSubject('owner').setIssuer('nursing-wiki').setAudience('nursing-wiki-admin').setIssuedAt().setExpirationTime('7d').sign(key) };
   }
   async authorize(header: string | undefined): Promise<Admin> {

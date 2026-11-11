@@ -4,7 +4,7 @@ export const clientPassword = z.string().min(12).max(72).refine(v => new TextEnc
 export const registrationSchema = z.object({ email: emailSchema, password: clientPassword }).strict();
 export const questionSchema = z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), stem: z.string().min(1).max(20000), options: z.array(z.string().min(1).max(5000)).min(2).max(8), correctIndex: z.number().int().min(0), explanation: z.string().max(20000).default('') }).strict().refine(q => q.correctIndex < q.options.length);
 export const quizSchema = z.object({ title: z.string().trim().min(1).max(160), questions: z.array(questionSchema).min(1).max(60) }).strict().refine(q => new Set(q.questions.map(x => x.id)).size === q.questions.length, 'Question IDs must be unique');
-export const answersSchema = z.record(z.string().max(80), z.number().int().min(0).max(7));
+export const answersSchema = z.record(z.string().max(80), z.number().int().min(0).max(7)).refine(answers => Object.keys(answers).length <= 60, 'At most 60 answers are allowed');
 export type Question = z.infer<typeof questionSchema>;
 export function parseQuizMarkdown(markdown: string) {
     const key = markdown.match(/\n---\s*\n\s*```json\s*\n([\s\S]*?)\n```\s*$/);

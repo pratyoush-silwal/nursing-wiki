@@ -22,7 +22,7 @@ export async function buildApp(services: AppServices, logLevel: string = 'silent
   app.addContentTypeParser(['text/markdown', 'text/plain'], { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff');
-    const path = request.url.split('?')[0];
+    const path = request.routeOptions.url ?? request.url.split('?')[0];
     const publicRead = ['GET','HEAD'].includes(request.method) && (/^\/articles\/[^/]+$/.test(path) || (path === '/search' || path === '/search/suggest') || ['/health/live','/health/ready'].includes(path));
     const authRoute = request.method === 'POST' && ['/admin/login','/auth/register','/auth/verify','/auth/login'].includes(path);
     if (!authRoute && !publicRead) {

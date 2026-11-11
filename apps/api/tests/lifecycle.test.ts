@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { unlink, symlink, mkdir } from 'node:fs/promises';
+import { unlink, symlink, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MARKDOWN_LIMIT, IMAGE_LIMIT } from '@wiki/shared';
 import { fixture, png, labels, secret } from './helpers.ts';
@@ -34,6 +34,7 @@ test('deferred labels survive publication and metadata recovery', async t => {
   f.repo.articles.clear(); await f.articles.reconcile();
   assert.equal((await f.repo.get(article._id))?.labelsDeferred,true);
 });
+test('reconcile preserves metadata when object manifests are missing without a deletion intent', async t => { const f = await fixture(); t.after(f.close); const article = await f.publish('recoverable'); await unlink(join(f.root, 'articles', article._id, '.manifest.json')); await f.articles.reconcile(); assert.equal((await f.repo.get(article._id))?.slug, 'recoverable'); });
 test('uploads reject excessive size, invalid UTF-8, unsafe paths and images before Markdown', async t => {
   const f = await fixture(); t.after(f.close); const a = await f.articles.create({name:'X',slug:'x'});
   await assert.rejects(f.articles.upload(a._id,Buffer.alloc(MARKDOWN_LIMIT+1)),/6 MB/);
@@ -151,6 +152,8 @@ test('storage rejects symlink objects', async t => {
   const f = await fixture(); t.after(f.close); const a = await f.publish('symlink','![x](images/scan.png)');
   await mkdir(join(f.root,'other')); await symlink(join(f.root,'other'),join(f.root,'articles',a._id,'images'));
   await assert.rejects(f.articles.image(a._id,'images/scan.png',png),/Symlinks/);
+  await writeFile(join(f.root,'other','content.md'),'outside object storage'); await unlink(join(f.root,'articles',a._id,'content.md')); await symlink(join(f.root,'other','content.md'),join(f.root,'articles',a._id,'content.md'));
+  await assert.rejects(f.storage.read(a._id),/Symlinks/);
 });
 test('owner authentication rejects forged, expired and revoked tokens; seed never resets owner', async t => {
   const f = await fixture(); t.after(f.close);

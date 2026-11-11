@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   return z.object({
-    PORT: z.coerce.number().int().min(1).max(65535).default(3000), HOST: z.string().default('0.0.0.0'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(3000), HOST: z.string().default('127.0.0.1'),
     MONGO_URL: z.string().min(1), MONGO_DB: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('nursing_wiki'),
     REDIS_URL: z.url().default('redis://redis:6379'),
     ELASTICSEARCH_URL: z.url().default('http://elasticsearch:9200'),

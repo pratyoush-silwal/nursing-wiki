@@ -34,12 +34,12 @@ export async function learningRoutes(app: FastifyInstance, l: Learning, queues: 
         Params: {
             id: string;
         };
-    }>('/quizzes/:id/answers', async (req) => { const session = await l.saveAnswers(idSchema.parse(req.params.id), (await l.authorize(req.headers.authorization))._id, req.body, false); return { saved: true, submitted: !!session.submittedAt, deadlineAt: session.deadlineAt, serverNow: new Date() }; });
+    }>('/quizzes/:id/answers', { bodyLimit: 16 * 1024 }, async (req) => { const session = await l.saveAnswers(idSchema.parse(req.params.id), (await l.authorize(req.headers.authorization))._id, req.body, false); return { saved: true, submitted: !!session.submittedAt, deadlineAt: session.deadlineAt, serverNow: new Date() }; });
     app.post<{
         Params: {
             id: string;
         };
-    }>('/quizzes/:id/submit', async (req, reply) => { const session = await l.saveAnswers(idSchema.parse(req.params.id), (await l.authorize(req.headers.authorization))._id, req.body, true); void queues()?.grade(session._id).catch(e => app.log.warn({ err: e }, 'Grading dispatch will retry')); return reply.code(202).send({ queued: true }); });
+    }>('/quizzes/:id/submit', { bodyLimit: 16 * 1024 }, async (req, reply) => { const session = await l.saveAnswers(idSchema.parse(req.params.id), (await l.authorize(req.headers.authorization))._id, req.body, true); void queues()?.grade(session._id).catch(e => app.log.warn({ err: e }, 'Grading dispatch will retry')); return reply.code(202).send({ queued: true }); });
     app.post<{
         Params: {
             id: string;
