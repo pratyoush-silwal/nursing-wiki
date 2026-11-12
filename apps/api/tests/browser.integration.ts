@@ -113,3 +113,40 @@ test('browser: verified client login, premium gate, local card replay and timed 
   await page.goto(`${origin}/client/flashcards/article`);const callsBeforeStudy=deckCalls;await page.getByRole('button',{name:'Flip card'}).click();await page.getByRole('button',{name:'Good',exact:true}).click();await page.getByRole('heading',{name:'That’s a good session.'}).waitFor();assert.equal(deckCalls,callsBeforeStudy);
   await page.goto(`${origin}/client/quizzes`);await page.getByRole('button',{name:'Join Quiz',exact:true}).click();await page.getByRole('radio',{name:'Second'}).check();await page.getByRole('button',{name:'Submit answers'}).click();await page.getByText('100%',{exact:true}).waitFor();assert.ok(answerSaves>=1);assert.equal(submitted,true);assert.deepEqual(errors,[]);
 });
+
+test('browser: submitted quiz review highlights selections, survives refresh and expires', async t => {
+  const server = await preview({root:resolve('apps/client-web'),preview:{host:'127.0.0.1',port:0}});
+  t.after(() => new Promise<void>(done => server.httpServer.close(() => done())));
+  const origin = `http://127.0.0.1:${(server.httpServer.address() as AddressInfo).port}`;
+  const browser = await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {})});
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.addInitScript(() => sessionStorage.setItem('wiki-client-token', 'test-token'));
+  const result = { _id: 'review-quiz', title: 'Review practice', activatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString(), status: 'graded', attempt: { scorePercent: 0, answers: { a: 0 } }, review: { questions: [{ id: 'a', stem: 'Which answer is correct?', options: ['Wrong choice', 'Right choice'] }, { id: 'b', stem: 'Unanswered question', options: ['First', 'Second'] }], correctAnswers: { a: 1, b: 0 }, answers: { a: 0 } } };
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({json:{id:'reader',email:'reader@example.com',premium:false}});
+    if (path === '/api/quizzes') return route.fulfill({json:{quizzes:[]}});
+    if (path === '/api/quizzes/attempts/me') return route.fulfill({json:{results:[result]}});
+    return route.fulfill({status:404,json:{error:'Not found'}});
+  });
+  await page.goto(`${origin}/client/results`);
+  await page.getByText('Review questions and answers', {exact:true}).click();
+  await page.locator('.review-correct').first().waitFor();
+  assert.equal(await page.locator('.review-correct').count(), 2);
+  assert.equal(await page.locator('.review-incorrect').count(), 1);
+  assert.match(await page.locator('.review-incorrect').innerText(), /Wrong choice/);
+  assert.equal(await page.locator('.quiz-review input').count(), 0);
+  await page.getByText('You did not answer this question.', {exact:true}).waitFor();
+  assert.equal(await page.locator('.review-correct').filter({hasText:'Correct answer · No selection'}).count(), 1);
+  assert.equal(await page.getByText('Correct answer · Your selection', {exact:true}).count(), 0);
+  const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('wiki-quiz-review:reader:review-quiz')!));
+  assert.deepEqual(stored.review.answers, {a:0});
+  await page.reload();
+  await page.getByText('Review questions and answers', {exact:true}).waitFor();
+  await page.clock.install();
+  await page.clock.fastForward(61000);
+  await page.getByText('This quiz has ended. Question review is no longer available.', {exact:true}).waitFor();
+  assert.equal(await page.locator('.quiz-review').count(), 0);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('wiki-quiz-review:reader:review-quiz')), null);
+});

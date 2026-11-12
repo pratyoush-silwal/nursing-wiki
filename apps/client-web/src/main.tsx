@@ -6,7 +6,7 @@ import { Navbar, Sidebar, Footer, Modal } from '../../../packages/shared/src/ui/
 import { Markdown } from '../../../packages/shared/src/ui/Markdown.tsx';
 import { Search } from '../../../packages/shared/src/ui/Search.tsx';
 import { QuizRun, type Session } from './pages/Quizzes.tsx';
-import { Results, type Result } from './pages/Results.tsx';
+import { Results, storedResults, type Result } from './pages/Results.tsx';
 import { Study } from './pages/Flashcards.tsx';
 import { json, type Call } from './api.ts';
 import '../../../packages/shared/src/styles.css';
@@ -57,7 +57,7 @@ function App() {
         quizId?: string;
     }[]>([]);
     const path = location.pathname.replace(/^\/client/, '') || '/', query = new URLSearchParams(location.search).get('q') ?? '';
-    function signOut() { sessionStorage.removeItem('wiki-client-token'); setToken(''); setUser(null); setResults([]); setDeck(null); setDecks([]); setArticle(null); setSession(null); setQuizzes([]); setNotes([]); }
+    function signOut() { for (const key of Object.keys(sessionStorage)) if (key.startsWith('wiki-quiz-review:')) sessionStorage.removeItem(key); sessionStorage.removeItem('wiki-client-token'); setToken(''); setUser(null); setResults([]); setDeck(null); setDecks([]); setArticle(null); setSession(null); setQuizzes([]); setNotes([]); }
     const call: Call = async (path, options = {}) => { const response = await fetch(`/api${path}`, { signal: AbortSignal.timeout(15000), ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } }); const body = await response.json(); if (response.status === 401)
         signOut(); if (body.code === 'PREMIUM_REQUIRED')
         setGate(true); if (!response.ok)
@@ -68,6 +68,8 @@ function App() {
         try {
             const current = await call<User>('/auth/me');
             setUser(current);
+            const cachedResults = storedResults(current.id);
+            if (path === '/results') setResults(cachedResults);
             setQuizzes((await call<{
                 quizzes: Live[];
             }>('/quizzes')).quizzes);
@@ -102,7 +104,7 @@ function App() {
     useEffect(() => { if (!token)
         return; void load(); }, [token]);
     useEffect(() => { if (!token || !user)
-        return; const timer = setInterval(() => { void call<{
+        return; const timer = setInterval(() => { storedResults(user.id); void call<{
         quizzes: Live[];
     }>('/quizzes').then(r => setQuizzes(r.quizzes)).catch(() => { });
     if ((path === '/flashcards' || path === '/flashcards/') && user.premium)
@@ -133,7 +135,7 @@ function App() {
             location.assign(`/client/flashcards/${article.id}`); }}>Study flashcards</button></div><Markdown text={article.markdown} images={article.images} client/><div className="tags">{article.labels.map(label => <a className="tag" key={label} href={`/client/?q=${encodeURIComponent(label)}`}>{label}</a>)}</div></article>}
     {path === '/quizzes' && (session ? <QuizRun key={session.quizId} session={session} call={call} finished={() => location.assign('/client/results')}/> : <section><p className="eyebrow">A daily challenge</p><h1>Put your knowledge to work.</h1><p className="muted">One attempt per quiz. One minute per question, up to the quiz’s closing time.</p>{quizzes.length === 0 ? <div className="empty">No active quizzes. Check back soon.</div> : quizzes.map(q => <article className="quiz-row" key={q._id}><div><h2>{q.title}</h2><p>{q.questionCount} questions · Closes {new Date(q.expiresAt).toLocaleString()}</p></div><button className="button" disabled={busy} onClick={() => void start(q._id)}>Join Quiz</button></article>)}<a href="/client/results">View your results →</a></section>)}
     {path === '/notifications' && <section><p className="eyebrow">Your learning activity</p><h1>Notifications</h1>{notes.length === 0 ? <div className="empty">You’re all caught up.</div> : notes.map(n => <article className="quiz-row" key={n._id}><div><p>{n.message}</p>{n.quizId && <a href="/client/quizzes">Join Quiz →</a>}{n.type === 'quiz-result' && <a href="/client/results">View results →</a>}</div>{!n.quizId && !n.read && <button className="text-button" onClick={() => void call(`/notifications/${encodeURIComponent(n._id)}/read`, { method: 'PATCH' }).then(() => setNotes(all => all.map(note => note._id === n._id ? { ...note, read: true } : note))).catch(e => setError(e.message))}>Mark read</button>}</article>)}</section>}
-    {path === '/results' && <Results results={results}/>}
+    {path === '/results' && <Results results={results} userId={user?.id ?? ''}/>}
     {path.startsWith('/flashcards') && (deck ? <Study key={deck._id} deck={deck}/> : <section><p className="eyebrow">A practice in remembering</p><h1>Your flashcards.</h1>{decks.length === 0 ? <div className="empty"><h2>No decks yet.</h2><p>New flashcard collections will appear here when published.</p></div> : decks.map(d => <article className="quiz-row" key={d._id}><h2>{d.title}</h2><a className="button secondary" href={`/client/flashcards/${d.articleId}`}>Study deck</a></article>)}</section>)}
     {path === '/upgrade' && <section className="upgrade"><p className="eyebrow">More ways to learn</p><h1>Good ideas deserve<br />to stay with you.</h1><p>Unlock article flashcards and build a practice of remembering.</p>{user?.premium ? <p className="notice">You’re a premium member. Your access is permanent.</p> : <form onSubmit={async (e) => { e.preventDefault(); setBusy(true); setError(''); try {
             await call('/premium/unlock', json('POST', { code: new FormData(e.currentTarget).get('code') }));

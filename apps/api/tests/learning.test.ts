@@ -133,3 +133,26 @@ test('admin flashcard status reports queue progress, failures, retries, and save
     assert.equal(parseDeck(deck.json().markdown).length, 1);
 
 });
+
+test('quiz review is private, read only, available after submission and hidden at expiry', async t => {
+    const f = await setup(t), now = new Date();
+    const quiz = await f.l.createQuiz({ title: 'Review quiz', questions }, 'owner', now);
+    await f.l.start(quiz._id, 'reader', now);
+    assert.equal((await f.l.results('reader', now))[0].review, null);
+    await f.l.saveAnswers(quiz._id, 'reader', { answers: { a: 0 } }, true, now);
+    const review = (await f.l.results('reader', now))[0].review!;
+    assert.deepEqual(review.answers, { a: 0 });
+    assert.equal(review.correctAnswers.a, 1);
+    assert.equal(review.questions[0].stem, questions[0].stem);
+    assert.equal((await f.l.results('other-reader', now))[0].review, null);
+    await f.l.saveAnswers(quiz._id, 'reader', { answers: { a: 1 } }, true, now);
+    assert.deepEqual((await f.l.results('reader', now))[0].review!.answers, { a: 0 });
+    const session = await f.l.sessions.findOne({ quizId: quiz._id, userId: 'reader' });
+    await f.l.gradeSession(session!._id);
+    await assert.rejects(f.l.start(quiz._id, 'reader', now), /already/);
+    assert.deepEqual((await f.l.results('reader', now))[0].review!.answers, { a: 0 });
+    const expired = (await f.l.results('reader', quiz.expiresAt))[0];
+    assert.equal(expired.review, null);
+    assert.ok(expired.attempt);
+    assert.equal('answers' in expired.attempt, false);
+});

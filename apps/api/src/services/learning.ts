@@ -181,5 +181,27 @@ export class Learning {
             if (!await this.articles.repo.get(deck.articleId) || !await this.articles.storage.exists(deck.articleId))
                 await this.decks.deleteOne({ _id: deck._id });
     }
-    async results(userId: string) { const [history, attempts, sessions] = await Promise.all([this.history.find({}).sort({ activatedAt: 1 }).toArray(), this.attempts.find({ userId }).toArray(), this.sessions.find({ userId }).toArray()]); return history.map(q => { const attempt = attempts.find(a => a.quizId === q._id) ?? null; const session = sessions.find(s => s.quizId === q._id); return { ...q, attempt, status: attempt ? 'graded' : session?.submittedAt ? 'grading' : session ? 'in-progress' : 'not-attempted' }; }); }
+    async results(userId: string, now = new Date()) {
+        const [history, attempts, sessions, quizzes] = await Promise.all([
+            this.history.find({}).sort({ activatedAt: 1 }).toArray(), this.attempts.find({ userId }).toArray(),
+            this.sessions.find({ userId }).toArray(), this.quizzes.find({ expiresAt: { $gt: now } }).toArray()
+        ]);
+        return history.map(q => {
+            const attempt = attempts.find(a => a.quizId === q._id) ?? null;
+            const session = sessions.find(s => s.quizId === q._id);
+            const quiz = quizzes.find(quiz => quiz._id === q._id);
+            const submitted = attempt ?? (session?.submittedAt ? session : null);
+            const review = quiz && submitted ? {
+                questions: quiz.questions.map(({ correctIndex, explanation, ...question }) => question),
+                correctAnswers: Object.fromEntries(quiz.questions.map(question => [question.id, question.correctIndex])),
+                answers: submitted.answers
+            } : null;
+            let summary: Omit<QuizAttempt, 'answers'> | null = null;
+            if (attempt) {
+                const { answers, ...details } = attempt;
+                summary = details;
+            }
+            return { ...q, attempt: summary, review, status: attempt ? 'graded' : session?.submittedAt ? 'grading' : session ? 'in-progress' : 'not-attempted' };
+        });
+    }
 }
