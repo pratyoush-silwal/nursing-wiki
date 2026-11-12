@@ -17,6 +17,11 @@ test('browser: public search/reader, image fallback, safe Markdown and responsiv
   await page.route('**/api/articles/nursing',route => route.fulfill({json:{id:'a',slug:'nursing',name:'Nursing fundamentals',size:100,uploadedAt:'2026-01-01',labels:['patient care'],labelStatus:'success',breadcrumb:[],images:{},markdown:'# Foundations\n\nReadable reference content.\n\n$E=mc^2$\n\n```mermaid\nflowchart LR\n  A[Read] --> B[Learn]\n```\n\n![missing](missing.png)\n\n<script>window.unsafeMarkdown = true</script>\n\n[Unsafe](javascript:alert(1))'}}));
   await page.goto(origin);
   assert.equal(await page.getByRole('heading',{name:'Nursing & medicine. Knowledge, organized.'}).count(),1);
+  await page.getByRole('button',{name:'Use dark theme'}).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme),'dark');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor),'rgb(12, 14, 12)');
+  await page.getByRole('button',{name:'Use light theme'}).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme),'light');
   await page.waitForFunction(() => document.querySelector('.icon-sidebar')!.getBoundingClientRect().top >= document.querySelector('.navbar')!.getBoundingClientRect().bottom - 1);
   await mkdir('test-results',{recursive:true}); await page.screenshot({path:'test-results/public-desktop.png',fullPage:true});
   await page.getByRole('combobox',{name:'Search articles'}).fill('nursing');
@@ -110,7 +115,7 @@ test('browser: verified client login, premium gate, local card replay and timed 
   await mkdir('test-results',{recursive:true});
   for(const width of [1440,1024,768,390]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`test-results/client-${width}.png`,fullPage:true});}
   await page.goto(`${origin}/client/flashcards`);await page.getByRole('dialog',{name:'upgrade to premium'}).waitFor();await page.getByRole('link',{name:'Go to upgrade'}).click();await page.getByLabel('Unlock code').fill('FREE');await page.getByRole('button',{name:'Unlock premium',exact:true}).click();await page.getByText('You’re a premium member.',{exact:false}).waitFor();
-  await page.goto(`${origin}/client/flashcards/article`);const callsBeforeStudy=deckCalls;await page.getByRole('button',{name:'Flip card'}).click();await page.getByRole('button',{name:'Good',exact:true}).click();await page.getByRole('heading',{name:'That’s a good session.'}).waitFor();assert.equal(deckCalls,callsBeforeStudy);
+  await page.goto(`${origin}/client/flashcards/article`);await page.getByRole('button',{name:'Flip card'}).waitFor();const callsBeforeStudy=deckCalls;await page.getByRole('button',{name:'Flip card'}).click();await page.getByRole('button',{name:'Good',exact:true}).click();await page.getByRole('heading',{name:'That’s a good session.'}).waitFor();assert.equal(deckCalls,callsBeforeStudy);
   await page.goto(`${origin}/client/quizzes`);await page.getByRole('button',{name:'Join Quiz',exact:true}).click();await page.getByRole('radio',{name:'Second'}).check();await page.getByRole('button',{name:'Submit answers'}).click();await page.getByText('100%',{exact:true}).waitFor();assert.ok(answerSaves>=1);assert.equal(submitted,true);assert.deepEqual(errors,[]);
 });
 
@@ -131,6 +136,10 @@ test('browser: submitted quiz review highlights selections, survives refresh and
     return route.fulfill({status:404,json:{error:'Not found'}});
   });
   await page.goto(`${origin}/client/results`);
+  assert.equal(await page.locator('.wordmark').getAttribute('href'), '/client/');
+  await page.getByRole('button',{name:'Use dark theme'}).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme),'dark');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim()),'#0c0e0c');
   await page.getByText('Review questions and answers', {exact:true}).click();
   await page.locator('.review-correct').first().waitFor();
   assert.equal(await page.locator('.review-correct').count(), 2);

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+try { document.documentElement.dataset.theme = localStorage.getItem('wiki-theme') === 'dark' ? 'dark' : 'light'; } catch { /* Theme defaults to light when storage is unavailable. */ }
 export function Icon({ name }: {
     name: 'home' | 'quiz' | 'cards';
 }) { return <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{name === 'home' ? <path d="m3 10 9-7 9 7v11h-7v-7h-4v7H3Z"/> : name === 'quiz' ? <><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h4"/></> : <><rect x="6" y="6" width="15" height="15" rx="2"/><path d="M17 3H3v14M10 11h7M10 15h4"/></>}</svg>; }
@@ -6,10 +7,29 @@ export function Sidebar({ client = false, activeQuiz = false }: {
     client?: boolean;
     activeQuiz?: boolean;
 }) { const base = '/client'; return <nav className="icon-sidebar" aria-label="Learning"><a href={client ? '/client/' : '/'} aria-current={location.pathname === (client ? '/client/' : '/') ? 'page' : undefined} title="Home"><Icon name="home"/><span>Home</span></a><a href={`${base}/quizzes`} aria-current={location.pathname.endsWith('/quizzes') ? 'page' : undefined} title={activeQuiz ? 'Join Quiz' : 'Quizzes'}><Icon name="quiz"/><span>{activeQuiz ? 'Join Quiz' : 'Quizzes'}</span>{activeQuiz && <i className="live-dot"/>}</a><a href={`${base}/flashcards`} aria-current={location.pathname.includes('/flashcards') ? 'page' : undefined} title="Flashcards"><Icon name="cards"/><span>Flashcards</span></a></nav>; }
-export function Navbar({ children, landing = false, search }: {
+export function ThemeToggle() {
+    const [dark, setDark] = useState(() => {
+        try {
+            return document.documentElement.dataset.theme === 'dark' || localStorage.getItem('wiki-theme') === 'dark';
+        }
+        catch {
+            return document.documentElement.dataset.theme === 'dark';
+        }
+    });
+    useEffect(() => {
+        const theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        try { localStorage.setItem('wiki-theme', theme); } catch { /* Storage is optional. */ }
+        window.dispatchEvent(new CustomEvent('wiki-theme-change', { detail: theme }));
+    }, [dark]);
+    return <button type="button" className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} aria-pressed={dark} title={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(value => !value)}>{dark ? <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> : <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/></svg>}</button>;
+}
+export function Navbar({ children, landing = false, search, homeHref = '/' }: {
     children?: ReactNode;
     landing?: boolean;
     search?: ReactNode;
+    homeHref?: string;
 }) {
     const headerRef = useRef<HTMLElement>(null);
     useLayoutEffect(() => {
@@ -45,7 +65,7 @@ export function Navbar({ children, landing = false, search }: {
         ], { duration: 460, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
         return () => animation.cancel();
     }, [compact]);
-    const [dark, setDark] = useState(() => localStorage.getItem('wiki-theme') === 'dark'); useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('wiki-theme', dark ? 'dark' : 'light'); }, [dark]); return <header ref={headerRef} className={`navbar ${landing ? 'marketing-nav' : ''} ${search ? 'search-navbar' : ''} ${compact ? 'search-compact' : ''}`} ><a className="wordmark" href="/">Nursing & Medicine<span className="wordmark-dot">.</span></a>{search && <div ref={searchRef} className="navbar-search">{search}</div>}<nav aria-label="Account">{children}{!landing && <button className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(!dark)}>{dark ? '☀' : '☾'}</button>}</nav></header>; }
+    return <header ref={headerRef} className={`navbar ${landing ? 'marketing-nav' : ''} ${search ? 'search-navbar' : ''} ${compact ? 'search-compact' : ''}`} ><a className="wordmark" href={homeHref}>Nursing & Medicine<span className="wordmark-dot">.</span></a>{search && <div ref={searchRef} className="navbar-search">{search}</div>}<nav aria-label="Account">{children}<ThemeToggle/></nav></header>; }
 export function Modal({ title, children, close }: {
     title: string;
     children: ReactNode;

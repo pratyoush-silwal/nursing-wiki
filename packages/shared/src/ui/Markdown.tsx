@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import { loadScript } from './vendor.ts';
+import { loadScript, vendorPath } from './vendor.ts';
 type MathEngine = {
     startup?: {
         promise: Promise<unknown>;
@@ -23,7 +23,7 @@ function Mermaid({ text }: {
         let alive = true;
         setError('');
         void (async () => {
-            const path = '/vendor/mermaid/mermaid.esm.min.mjs';
+            const path = vendorPath('mermaid/mermaid.esm.min.mjs');
             const { default: mermaid } = await import(/* @vite-ignore */ path);
             mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', suppressErrorRendering: true, maxTextSize: 50000, flowchart: { htmlLabels: false } });
             const { svg } = await mermaid.render(`diagram${id}`, text);
